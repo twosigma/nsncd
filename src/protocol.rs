@@ -1,3 +1,11 @@
+//! The nscd protocol definition (at least, the parts of it we care about).
+//!
+//! The response structs here only describe the format of the header of the
+//! response. For each such response, if the lookup succeeded, there are
+//! additional strings we need to send after the header. Those are dealt with in
+//! `handlers::send_{user,group}`. For a full picture of the protocol, you will
+//! need to read both.
+
 use std::convert::TryInto;
 use std::ffi::CStr;
 
@@ -9,7 +17,8 @@ use nix::libc::{c_int, gid_t, uid_t};
 
 pub const VERSION: i32 = 2;
 
-/* Available services.  */
+/// Available services. This enum describes all service types the nscd protocol
+/// knows about, though we only implement `GETPW*` and `GETGR*`.
 #[derive(Debug, FromPrimitive)]
 pub enum RequestType {
     GETPWBYNAME,
@@ -37,6 +46,12 @@ pub enum RequestType {
     LASTREQ,
 }
 
+/// An incoming request. All requests have a version, a type, and a string key.
+/// This struct keeps the type and key, because that's what we need to reply to
+/// it, we only handle one version and we validate, but don't retain it.
+///
+/// The parsed Request object is valid as long as the buffer it is parsed from
+/// (that is, the key is a reference to the bytes in the buffer).
 #[derive(Debug)]
 pub struct Request<'a> {
     pub type_: RequestType,
@@ -44,6 +59,7 @@ pub struct Request<'a> {
 }
 
 impl<'a> Request<'a> {
+    /// Parse a Request from a buffer.
     pub fn parse(buf: &'a [u8]) -> Result<Request<'a>> {
         ensure!(buf.len() >= 12, "request body too small");
 

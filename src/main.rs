@@ -1,3 +1,23 @@
+//! `nsncd` is a nscd-compatible daemon that proxies lookups, without caching.
+//!
+//! `nsncd` can be used in situations where you want to make an application use
+//! nss plugins available to a different libc than the one the application will
+//! load. Since most (all?) libc implementations will try to use
+//! `/var/run/nscd/socket` if it exists, you can make all lookups on a machine
+//! attempt to use the libc that nsncd is running with (and any nss plugins
+//! available to it), regardless of the libc used by a particular application.
+//!
+//! `nsncd` currently does all its lookups directly in its own process, handling
+//! each request on a thread. If you have `nss` plugins that behave badly (leak
+//! resources, are not thread safe, etc.), this may cause problems.
+//!
+//! The `unscd` project attempts to solve this by handling lookup requests in
+//! child processes instead of directly in the long-lived daemon. This isolates
+//! the daemon from problems in the children doing the lookups, but the extra
+//! overhead of forking additional child processes seems large. `unscd` can get
+//! away with that because it's also caching, but we're not caching right now.
+//! We might try forking child processes to handle requests at some point later.
+
 // TODO:
 // - implement other pw and group methods?
 // - error handling
@@ -25,6 +45,7 @@ use slog::Drain;
 mod handlers;
 mod protocol;
 
+/// Handle a new socket connection, reading the request and sending the response.
 fn handle_stream(log: slog::Logger, mut stream: UnixStream) -> Result<()> {
     debug!(log, "accepted connection"; "stream" => ?stream);
     let mut buf = [0; 4096];

@@ -9,6 +9,15 @@ use slog::Logger;
 
 use super::protocol;
 
+/// Handle a request by performing the appropriate lookup and sending the
+/// serialized response back to the client.
+///
+/// # Arguments
+///
+/// * `log` - A `slog` Logger.
+/// * `request` - The request to handle.
+/// * `send` - A callback that will be used to send bytes back to the client, if
+///   there is a response to send. May be called multiple times.
 pub fn handle_request<SendSlice>(
     log: Logger,
     request: &protocol::Request,
@@ -41,6 +50,8 @@ where
     }
 }
 
+/// Send a user (passwd entry) back to the client, or a response indicating the
+/// lookup found no such user.
 fn send_user<SendSlice>(log: Logger, user: Option<User>, mut send: SendSlice) -> Result<()>
 where
     SendSlice: FnMut(&[u8]) -> Result<()>,
@@ -92,6 +103,8 @@ where
     Ok(())
 }
 
+/// Send a group (group entry) back to the client, or a response indicating the
+/// lookup found no such group.
 fn send_group<SendSlice>(log: Logger, group: Option<Group>, mut send: SendSlice) -> Result<()>
 where
     SendSlice: FnMut(&[u8]) -> Result<()>,
