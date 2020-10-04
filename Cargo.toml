@@ -16,6 +16,7 @@ nix = "^0.18"
 #nix = { git = "https://github.com/blinsay/nix.git", branch = "master" }
 num-derive = "^0.2"
 num-traits = "^0.2"
+systemd = "^0.6"
 
 [dev-dependencies]
 criterion = "^0.3"

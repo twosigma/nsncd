@@ -26,21 +26,20 @@
 // - test errors in underlying calls
 // - daemon/pidfile stuff
 
-#![feature(array_methods)]
-
 #[macro_use]
 extern crate slog;
 extern crate slog_async;
 extern crate slog_term;
 
 use std::io::prelude::*;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::io::FromRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::thread;
 
-use anyhow::{Context, Result};
+use anyhow::{ensure, Context, Result};
 use nix::libc;
 use slog::Drain;
+use systemd::daemon::{listen_fds, LISTEN_FDS_START};
 
 mod handlers;
 mod protocol;
@@ -64,8 +63,6 @@ extern "C" {
 
 unsafe extern "C" fn do_nothing(_dbidx: u64, _finfo: *mut libc::c_void) {}
 
-const SOCKET_PATH: &str = "/var/run/nscd/socket";
-
 fn main() -> Result<()> {
     unsafe {
         __nss_disable_nscd(do_nothing);
@@ -77,9 +74,8 @@ fn main() -> Result<()> {
 
     let _log = slog::Logger::root(drain, o!());
 
-    std::fs::remove_file(SOCKET_PATH).ok();
-    let listener = UnixListener::bind(SOCKET_PATH)?;
-    std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o777))?;
+    ensure!(listen_fds(true)? == 1, "expected one listen fd");
+    let listener = unsafe { UnixListener::from_raw_fd(LISTEN_FDS_START) };
 
     for stream in listener.incoming() {
         match stream {

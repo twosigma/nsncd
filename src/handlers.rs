@@ -87,7 +87,7 @@ where
             },
         };
         let header_bytes = unsafe { u.bytes };
-        send(header_bytes.as_slice())?;
+        send(&header_bytes)?;
         send(name_bytes)?;
         send(passwd_bytes)?;
         send(gecos_bytes)?;
@@ -98,7 +98,7 @@ where
             data: protocol::PwResponseHeader::default(),
         };
         let header_bytes = unsafe { u.bytes };
-        send(header_bytes.as_slice())?;
+        send(&header_bytes)?;
     }
     Ok(())
 }
@@ -142,9 +142,9 @@ where
             },
         };
         let header_bytes = unsafe { u.bytes };
-        send(header_bytes.as_slice())?;
+        send(&header_bytes)?;
         for member_bytes in members_bytes.iter() {
-            send(i32::to_ne_bytes(member_bytes.len() as i32).as_slice())?;
+            send(&i32::to_ne_bytes(member_bytes.len() as i32))?;
         }
         send(name_bytes)?;
         send(passwd_bytes)?;
@@ -156,7 +156,7 @@ where
             data: protocol::GrResponseHeader::default(),
         };
         let header_bytes = unsafe { u.bytes };
-        send(header_bytes.as_slice())?;
+        send(&header_bytes)?;
     }
     Ok(())
 }
