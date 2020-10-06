@@ -1,0 +1,22 @@
+Source: nsncd
+Section: misc
+Priority: optional
+Maintainer: Geoffrey Thomas <geofft@twosigma.com>
+Build-Depends: debhelper (>= 12), cargo, libsystemd-dev
+Standards-Version: 3.9.8
+Homepage: https://github.com/twosigma/nsncd
+VCS-Git: https://github.com/twosigma/nsncd -b debian
+VCS-Browser: https://github.com/twosigma/nsncd/tree/debian
+XC-Multidist: yes
+Rules-Requires-Root: no
+
+Package: nsncd
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: Name service non-caching daemon
+ nsncd implements the NSCD (name-service caching daemon) protocol to
+ provide out-of-process NSS lookups but does not implement caching.
+ .
+ It is designed to provide high-performance NSS lookups for programs
+ that are not using the system libc, while providing semantics as if
+ NSCD were not being used.
