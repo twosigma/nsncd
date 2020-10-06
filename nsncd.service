@@ -1,2 +1,6 @@
+[Unit]
+Description=name-service non-caching daemon
+
 [Service]
-ExecStart=/path/to/nsncd
+ExecStart=/usr/lib/nsncd
+Restart=always
