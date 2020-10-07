@@ -1,2 +1,5 @@
 [Socket]
 ListenStream=/var/run/nscd/socket
+
+[Install]
+WantedBy=sockets.target

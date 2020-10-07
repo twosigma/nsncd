@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cargo build --release
+
+# See README.source.
+vendor:
+	mkdir -p .cargo
+	cargo vendor > .cargo/config
+	mkdir vendor-patched
+	mv vendor/systemd vendor-patched
+	find vendor-patched/systemd -name .cargo-checksum.json -delete
+	find vendor-patched/systemd -name \*.rs -exec sed -i 's/use \(\(..*\)::.*\) as \2/use ::\1 as \2/' {} +
+	cat debian/Cargo.toml.append >> Cargo.toml

@@ -1,0 +1,12 @@
+Since Debian Stretch does not have a complete Rust packaging environment
+yet, we build the Debian package by first using "cargo vendor" to
+downlooad the dependencies. To run this automatically and set things up,
+run
+
+    debian/rules vendor
+
+You can then build with dpkg-buildpackage (or commit and build with gbp
+buildpackage if you use that). The debian/rules vendor target also
+patches around an issue where the current versiojn of rustc in
+Stretch/Buster fails to compile the latest version of the "systemd"
+crate.
