@@ -1,3 +1,4 @@
+use std::convert::TryInto;
 use std::ffi::CString;
 use std::mem::size_of;
 use std::os::unix::ffi::OsStrExt;
@@ -8,6 +9,7 @@ use nix::unistd::{Gid, Group, Uid, User};
 use slog::Logger;
 
 use super::protocol;
+use super::protocol::RequestType;
 
 /// Handle a request by performing the appropriate lookup and sending the
 /// serialized response back to the client.
@@ -16,45 +18,59 @@ use super::protocol;
 ///
 /// * `log` - A `slog` Logger.
 /// * `request` - The request to handle.
-/// * `send` - A callback that will be used to send bytes back to the client, if
-///   there is a response to send. May be called multiple times.
-pub fn handle_request<SendSlice>(
-    log: Logger,
-    request: &protocol::Request,
-    send: SendSlice,
-) -> Result<()>
+/// * `send_slice` - A callback that will be used to send bytes back to the client, if
+///   there is a response to send.
+pub fn handle_request<F>(log: &Logger, request: &protocol::Request, send_slice: F) -> Result<()>
 where
-    SendSlice: FnMut(&[u8]) -> Result<()>,
+    F: FnMut(&[u8]) -> Result<()>,
 {
     debug!(log, "handling request"; "request" => ?request);
-    match request.type_ {
-        protocol::RequestType::GETPWBYUID => {
+    match request.ty {
+        RequestType::GETPWBYUID => {
             let uid = atoi::<u32>(request.key.to_bytes()).context("invalid uid string")?;
             let user = User::from_uid(Uid::from_raw(uid))?;
-            send_user(log, user, send)
+            send_user(log, user, send_slice)
         }
-        protocol::RequestType::GETPWBYNAME => {
+        RequestType::GETPWBYNAME => {
             let user = User::from_name(request.key.to_str()?)?;
-            send_user(log, user, send)
+            send_user(log, user, send_slice)
         }
-        protocol::RequestType::GETGRBYGID => {
+        RequestType::GETGRBYGID => {
             let gid = atoi::<u32>(request.key.to_bytes()).context("invalid gid string")?;
             let group = Group::from_gid(Gid::from_raw(gid))?;
-            send_group(log, group, send)
+            send_group(log, group, send_slice)
         }
-        protocol::RequestType::GETGRBYNAME => {
+        RequestType::GETGRBYNAME => {
             let group = Group::from_name(request.key.to_str()?)?;
-            send_group(log, group, send)
+            send_group(log, group, send_slice)
         }
-        _ => Ok(()),
+        RequestType::GETHOSTBYADDR
+        | RequestType::GETHOSTBYADDRv6
+        | RequestType::GETHOSTBYNAME
+        | RequestType::GETHOSTBYNAMEv6
+        | RequestType::SHUTDOWN
+        | RequestType::GETSTAT
+        | RequestType::INVALIDATE
+        | RequestType::GETFDPW
+        | RequestType::GETFDGR
+        | RequestType::GETFDHST
+        | RequestType::GETAI
+        | RequestType::GETSERVBYNAME
+        | RequestType::GETSERVBYPORT
+        | RequestType::GETFDSERV
+        | RequestType::GETFDNETGR
+        | RequestType::GETNETGRENT
+        | RequestType::INNETGR
+        | RequestType::LASTREQ
+        | RequestType::INITGROUPS => Ok(()),
     }
 }
 
 /// Send a user (passwd entry) back to the client, or a response indicating the
 /// lookup found no such user.
-fn send_user<SendSlice>(log: Logger, user: Option<User>, mut send: SendSlice) -> Result<()>
+fn send_user<F>(log: &Logger, user: Option<User>, mut send_slice: F) -> Result<()>
 where
-    SendSlice: FnMut(&[u8]) -> Result<()>,
+    F: FnMut(&[u8]) -> Result<()>,
 {
     #[repr(C)]
     union Union {
@@ -77,37 +93,37 @@ where
             data: protocol::PwResponseHeader {
                 version: protocol::VERSION,
                 found: 1,
-                pw_name_len: name_bytes.len() as i32,
-                pw_passwd_len: passwd_bytes.len() as i32,
+                pw_name_len: name_bytes.len().try_into()?,
+                pw_passwd_len: passwd_bytes.len().try_into()?,
                 pw_uid: data.uid.as_raw(),
                 pw_gid: data.gid.as_raw(),
-                pw_gecos_len: gecos_bytes.len() as i32,
-                pw_dir_len: dir_bytes.len() as i32,
-                pw_shell_len: shell_bytes.len() as i32,
+                pw_gecos_len: gecos_bytes.len().try_into()?,
+                pw_dir_len: dir_bytes.len().try_into()?,
+                pw_shell_len: shell_bytes.len().try_into()?,
             },
         };
         let header_bytes = unsafe { u.bytes };
-        send(&header_bytes)?;
-        send(name_bytes)?;
-        send(passwd_bytes)?;
-        send(gecos_bytes)?;
-        send(dir_bytes)?;
-        send(shell_bytes)?;
+        send_slice(&header_bytes)?;
+        send_slice(name_bytes)?;
+        send_slice(passwd_bytes)?;
+        send_slice(gecos_bytes)?;
+        send_slice(dir_bytes)?;
+        send_slice(shell_bytes)?;
     } else {
         let u = Union {
             data: protocol::PwResponseHeader::default(),
         };
         let header_bytes = unsafe { u.bytes };
-        send(&header_bytes)?;
+        send_slice(&header_bytes)?;
     }
     Ok(())
 }
 
 /// Send a group (group entry) back to the client, or a response indicating the
 /// lookup found no such group.
-fn send_group<SendSlice>(log: Logger, group: Option<Group>, mut send: SendSlice) -> Result<()>
+fn send_group<F>(log: &Logger, group: Option<Group>, mut send_slice: F) -> Result<()>
 where
-    SendSlice: FnMut(&[u8]) -> Result<()>,
+    F: FnMut(&[u8]) -> Result<()>,
 {
     #[repr(C)]
     union Union {
@@ -119,7 +135,8 @@ where
     if let Some(data) = group {
         let name = CString::new(data.name)?;
         let name_bytes = name.to_bytes_with_nul();
-        let passwd = CString::new("x")?; // The nix crate doesn't give us the password
+        // The nix crate doesn't give us the password: https://github.com/nix-rust/nix/pull/1338
+        let passwd = CString::new("x")?;
         let passwd_bytes = passwd.to_bytes_with_nul();
         let members: Vec<CString> = data
             .mem
@@ -135,28 +152,28 @@ where
             data: protocol::GrResponseHeader {
                 version: protocol::VERSION,
                 found: 1,
-                gr_name_len: name_bytes.len() as i32,
-                gr_passwd_len: passwd_bytes.len() as i32,
+                gr_name_len: name_bytes.len().try_into()?,
+                gr_passwd_len: passwd_bytes.len().try_into()?,
                 gr_gid: data.gid.as_raw(),
-                gr_mem_cnt: data.mem.len() as i32,
+                gr_mem_cnt: data.mem.len().try_into()?,
             },
         };
         let header_bytes = unsafe { u.bytes };
-        send(&header_bytes)?;
+        send_slice(&header_bytes)?;
         for member_bytes in members_bytes.iter() {
-            send(&i32::to_ne_bytes(member_bytes.len() as i32))?;
+            send_slice(&i32::to_ne_bytes(member_bytes.len().try_into()?))?;
         }
-        send(name_bytes)?;
-        send(passwd_bytes)?;
+        send_slice(name_bytes)?;
+        send_slice(passwd_bytes)?;
         for member_bytes in members_bytes.iter() {
-            send(member_bytes)?;
+            send_slice(member_bytes)?;
         }
     } else {
         let u = Union {
             data: protocol::GrResponseHeader::default(),
         };
         let header_bytes = unsafe { u.bytes };
-        send(&header_bytes)?;
+        send_slice(&header_bytes)?;
     }
     Ok(())
 }
