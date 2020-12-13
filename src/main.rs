@@ -28,11 +28,6 @@
 // - test errors in underlying calls
 // - daemon/pidfile stuff
 
-#[macro_use]
-extern crate slog;
-extern crate slog_async;
-extern crate slog_term;
-
 use std::io::prelude::*;
 use std::os::unix::{
     io::FromRawFd,
@@ -41,7 +36,9 @@ use std::os::unix::{
 use std::thread;
 
 use anyhow::{ensure, Context, Result};
-use slog::Drain;
+use slog::{debug, error, Drain};
+use slog_async;
+use slog_term;
 use systemd::daemon::{listen_fds, LISTEN_FDS_START};
 
 mod ffi;
@@ -68,7 +65,7 @@ fn main() -> Result<()> {
     let drain = slog_term::FullFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
 
-    let logger = slog::Logger::root(drain, o!());
+    let logger = slog::Logger::root(drain, slog::o!());
 
     let listen_fds_found = listen_fds(true)?;
     ensure!(

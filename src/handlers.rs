@@ -6,7 +6,7 @@ use std::os::unix::ffi::OsStrExt;
 use anyhow::{Context, Result};
 use atoi::atoi;
 use nix::unistd::{Gid, Group, Uid, User};
-use slog::Logger;
+use slog::{debug, Logger};
 
 use super::protocol;
 use super::protocol::RequestType;
