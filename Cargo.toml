@@ -1,10 +1,17 @@
 [package]
 name = "nsncd"
 version = "0.1.0"
-authors = ["Leif Walsh <leif.walsh@gmail.com>"]
+authors = [
+    "Ben Linsay <ben.linsay@twosigma.com>",
+    "Geoffrey Thomas <geoffrey.thomas@twosigma.com>",
+    "Leif Walsh <leif.walsh@twosigma.com>",
+]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "The name service non-caching daemon"
+readme = "README.md"
+repository = "https://github.com/twosigma/nsncd"
+license = "Apache-2.0"
+license-file = "LICENSE"
 
 [dependencies]
 anyhow = "^1.0"
