@@ -8,6 +8,7 @@
 
 use std::convert::TryInto;
 use std::ffi::CStr;
+use std::mem::size_of;
 
 use anyhow::{ensure, Context, Result};
 use num_derive::FromPrimitive;
@@ -100,6 +101,17 @@ pub struct PwResponseHeader {
     pub pw_shell_len: c_int,
 }
 
+impl PwResponseHeader {
+    /// Serialize the header to bytes.
+    ///
+    /// The C implementations of nscd just take the address of the struct, so
+    /// we will too, to make it easy to convince ourselves it's correct.
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
 /// Structure sent in reply to group query.  Note that this struct is
 /// sent also if the service is disabled or there is no record found.
 #[repr(C)]
@@ -111,4 +123,15 @@ pub struct GrResponseHeader {
     pub gr_passwd_len: c_int,
     pub gr_gid: gid_t,
     pub gr_mem_cnt: c_int,
+}
+
+impl GrResponseHeader {
+    /// Serialize the header to bytes.
+    ///
+    /// The C implementations of nscd just take the address of the struct, so
+    /// we will too, to make it easy to convince ourselves it's correct.
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
 }

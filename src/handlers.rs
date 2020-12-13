@@ -72,12 +72,6 @@ fn send_user<F>(log: &Logger, user: Option<User>, mut send_slice: F) -> Result<(
 where
     F: FnMut(&[u8]) -> Result<()>,
 {
-    #[repr(C)]
-    union Union {
-        data: protocol::PwResponseHeader,
-        bytes: [u8; size_of::<protocol::PwResponseHeader>()],
-    };
-
     debug!(log, "got user"; "user" => ?user);
     if let Some(data) = user {
         let name = CString::new(data.name)?;
@@ -89,32 +83,26 @@ where
         let shell = CString::new(data.shell.as_os_str().as_bytes())?;
         let shell_bytes = shell.to_bytes_with_nul();
 
-        let u = Union {
-            data: protocol::PwResponseHeader {
-                version: protocol::VERSION,
-                found: 1,
-                pw_name_len: name_bytes.len().try_into()?,
-                pw_passwd_len: passwd_bytes.len().try_into()?,
-                pw_uid: data.uid.as_raw(),
-                pw_gid: data.gid.as_raw(),
-                pw_gecos_len: gecos_bytes.len().try_into()?,
-                pw_dir_len: dir_bytes.len().try_into()?,
-                pw_shell_len: shell_bytes.len().try_into()?,
-            },
+        let header = protocol::PwResponseHeader {
+            version: protocol::VERSION,
+            found: 1,
+            pw_name_len: name_bytes.len().try_into()?,
+            pw_passwd_len: passwd_bytes.len().try_into()?,
+            pw_uid: data.uid.as_raw(),
+            pw_gid: data.gid.as_raw(),
+            pw_gecos_len: gecos_bytes.len().try_into()?,
+            pw_dir_len: dir_bytes.len().try_into()?,
+            pw_shell_len: shell_bytes.len().try_into()?,
         };
-        let header_bytes = unsafe { u.bytes };
-        send_slice(&header_bytes)?;
+        send_slice(header.as_slice())?;
         send_slice(name_bytes)?;
         send_slice(passwd_bytes)?;
         send_slice(gecos_bytes)?;
         send_slice(dir_bytes)?;
         send_slice(shell_bytes)?;
     } else {
-        let u = Union {
-            data: protocol::PwResponseHeader::default(),
-        };
-        let header_bytes = unsafe { u.bytes };
-        send_slice(&header_bytes)?;
+        let header = protocol::PwResponseHeader::default();
+        send_slice(header.as_slice())?;
     }
     Ok(())
 }
@@ -125,12 +113,6 @@ fn send_group<F>(log: &Logger, group: Option<Group>, mut send_slice: F) -> Resul
 where
     F: FnMut(&[u8]) -> Result<()>,
 {
-    #[repr(C)]
-    union Union {
-        data: protocol::GrResponseHeader,
-        bytes: [u8; size_of::<protocol::GrResponseHeader>()],
-    };
-
     debug!(log, "got group"; "group" => ?group);
     if let Some(data) = group {
         let name = CString::new(data.name)?;
@@ -148,18 +130,15 @@ where
             .map(|member| member.to_bytes_with_nul())
             .collect();
 
-        let u = Union {
-            data: protocol::GrResponseHeader {
-                version: protocol::VERSION,
-                found: 1,
-                gr_name_len: name_bytes.len().try_into()?,
-                gr_passwd_len: passwd_bytes.len().try_into()?,
-                gr_gid: data.gid.as_raw(),
-                gr_mem_cnt: data.mem.len().try_into()?,
-            },
+        let header = protocol::GrResponseHeader {
+            version: protocol::VERSION,
+            found: 1,
+            gr_name_len: name_bytes.len().try_into()?,
+            gr_passwd_len: passwd_bytes.len().try_into()?,
+            gr_gid: data.gid.as_raw(),
+            gr_mem_cnt: data.mem.len().try_into()?,
         };
-        let header_bytes = unsafe { u.bytes };
-        send_slice(&header_bytes)?;
+        send_slice(header.as_slice())?;
         for member_bytes in members_bytes.iter() {
             send_slice(&i32::to_ne_bytes(member_bytes.len().try_into()?))?;
         }
@@ -169,11 +148,8 @@ where
             send_slice(member_bytes)?;
         }
     } else {
-        let u = Union {
-            data: protocol::GrResponseHeader::default(),
-        };
-        let header_bytes = unsafe { u.bytes };
-        send_slice(&header_bytes)?;
+        let header = protocol::GrResponseHeader::default();
+        send_slice(header.as_slice())?;
     }
     Ok(())
 }
