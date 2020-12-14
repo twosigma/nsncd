@@ -16,10 +16,12 @@
 
 use nix::libc;
 
+type size_t = ::std::os::raw::c_ulonglong;
+
 extern "C" {
     /// This is the function signature of the glibc internal function to
     /// disable using nscd for this process.
-    fn __nss_disable_nscd(hell: unsafe extern "C" fn(u64, *mut libc::c_void));
+    fn __nss_disable_nscd(hell: unsafe extern "C" fn(size_t, *mut libc::c_void));
 }
 
 /// Copied from
@@ -29,7 +31,7 @@ extern "C" {
 /// We _are_ nscd, so we need to do the lookups, and not recurse.
 /// Until 2.14, this function was taking no parameters.
 /// In 2.15, it takes a function pointer from hell.
-unsafe extern "C" fn do_nothing(_dbidx: u64, _finfo: *mut libc::c_void) {}
+unsafe extern "C" fn do_nothing(_dbidx: size_t, _finfo: *mut libc::c_void) {}
 
 /// Disable nscd inside our own glibc to prevent recursion.
 pub fn disable_internal_nscd() {
