@@ -8,6 +8,7 @@
 
 use std::convert::TryInto;
 use std::ffi::CStr;
+use std::mem::size_of;
 
 use anyhow::{ensure, Context, Result};
 use num_derive::FromPrimitive;
@@ -15,6 +16,8 @@ use num_traits::FromPrimitive;
 
 use nix::libc::{c_int, gid_t, uid_t};
 
+/// This is version 2 of the glibc nscd protocol. The version is passed as part
+/// of each message header.
 pub const VERSION: i32 = 2;
 
 /// Available services. This enum describes all service types the nscd protocol
@@ -29,9 +32,12 @@ pub enum RequestType {
     GETHOSTBYNAMEv6,
     GETHOSTBYADDR,
     GETHOSTBYADDRv6,
-    SHUTDOWN,   /* Shut the server down.  */
-    GETSTAT,    /* Get the server statistic.  */
-    INVALIDATE, /* Invalidate one special cache.  */
+    /// Shut the server down.
+    SHUTDOWN,
+    /// Get the server statistic.
+    GETSTAT,
+    /// Invalidate one special cache.
+    INVALIDATE,
     GETFDPW,
     GETFDGR,
     GETFDHST,
@@ -54,33 +60,33 @@ pub enum RequestType {
 /// (that is, the key is a reference to the bytes in the buffer).
 #[derive(Debug)]
 pub struct Request<'a> {
-    pub type_: RequestType,
+    pub ty: RequestType,
     pub key: &'a CStr,
 }
 
 impl<'a> Request<'a> {
     /// Parse a Request from a buffer.
-    pub fn parse(buf: &'a [u8]) -> Result<Request<'a>> {
-        ensure!(buf.len() >= 12, "request body too small");
+    pub fn parse(buf: &'a [u8]) -> Result<Self> {
+        ensure!(buf.len() >= 12, "request body too small: {}", buf.len());
 
         let version = buf[0..4].try_into().map(i32::from_ne_bytes)?;
         ensure!(version == VERSION, "wrong protocol version {}", version);
 
         let type_val = buf[4..8].try_into().map(i32::from_ne_bytes)?;
-        let type_ = FromPrimitive::from_i32(type_val)
+        let ty = FromPrimitive::from_i32(type_val)
             .with_context(|| format!("invalid enum value {}", type_val))?;
 
         let key_len = buf[8..12].try_into().map(i32::from_ne_bytes)?;
-        let key_end = 12 + key_len as usize;
+        let key_end = (12 + key_len).try_into()?;
         ensure!(buf.len() >= key_end, "request body too small");
 
         let key = CStr::from_bytes_with_nul(&buf[12..key_end])?;
-        Ok(Request { type_, key })
+        Ok(Request { ty, key })
     }
 }
 
-/* Structure sent in reply to password query.  Note that this struct is
-sent also if the service is disabled or there is no record found.  */
+/// Structure sent in reply to password query.  Note that this struct is
+/// sent also if the service is disabled or there is no record found.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct PwResponseHeader {
@@ -95,8 +101,19 @@ pub struct PwResponseHeader {
     pub pw_shell_len: c_int,
 }
 
-/* Structure sent in reply to group query.  Note that this struct is
-sent also if the service is disabled or there is no record found.  */
+impl PwResponseHeader {
+    /// Serialize the header to bytes.
+    ///
+    /// The C implementations of nscd just take the address of the struct, so
+    /// we will too, to make it easy to convince ourselves it's correct.
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
+/// Structure sent in reply to group query.  Note that this struct is
+/// sent also if the service is disabled or there is no record found.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct GrResponseHeader {
@@ -106,4 +123,15 @@ pub struct GrResponseHeader {
     pub gr_passwd_len: c_int,
     pub gr_gid: gid_t,
     pub gr_mem_cnt: c_int,
+}
+
+impl GrResponseHeader {
+    /// Serialize the header to bytes.
+    ///
+    /// The C implementations of nscd just take the address of the struct, so
+    /// we will too, to make it easy to convince ourselves it's correct.
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
 }
