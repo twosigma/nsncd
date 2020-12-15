@@ -1,6 +1,5 @@
 use std::convert::TryInto;
 use std::ffi::CString;
-use std::mem::size_of;
 use std::os::unix::ffi::OsStrExt;
 
 use anyhow::{Context, Result};
