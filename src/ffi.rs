@@ -16,6 +16,7 @@
 
 use nix::libc;
 
+#[allow(non_camel_case_types)]
 type size_t = ::std::os::raw::c_ulonglong;
 
 extern "C" {

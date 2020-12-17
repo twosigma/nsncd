@@ -11,7 +11,6 @@ description = "The name service non-caching daemon"
 readme = "README.md"
 repository = "https://github.com/twosigma/nsncd"
 license = "Apache-2.0"
-license-file = "LICENSE"
 
 [dependencies]
 anyhow = "^1.0"
