@@ -2,5 +2,5 @@ Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Source: https://github.com/twosigma/nsncd
 
 Files: *
-Copyright: 2020 Two Sigma Investments, LP.
+Copyright: 2020 Two Sigma Open Source, LLC
 License: Apache-2
