@@ -1,0 +1,8 @@
+name: CI
+on: push
+jobs:
+ build:
+  runs-on: ubuntu-latest
+  steps:
+   - run: wget -O- http://travis.debian.net/script.sh | env TRAVIS_BUILD_NUMBER=1 sh -
+
