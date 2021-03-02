@@ -1,3 +1,11 @@
+nsncd (1.1) unstable; urgency=medium
+
+  * Handle requests with internal NULs (fixes twosigma/nsncd#7).
+  * Remove systemd socket activation (fixes twosigma/nsncd#9, internal
+    issue SPDE-8114).
+
+ -- Geoffrey Thomas <geofft@twosigma.com>  Mon, 08 Mar 2021 14:06:57 -0500
+
 nsncd (1.0) unstable; urgency=medium
 
   * Initial release.

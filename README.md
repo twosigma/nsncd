@@ -17,10 +17,13 @@ and mailing lists.
 
 ## Installing
 
-You can use the provided debian package to install `nsncd` to run under
-`systemd`. It currently only works when managed by `systemd`, if you're
-interested in managing it in other ways, we'd need to modify how process startup
-works.
+Just run the `nsncd` binary and it will listen at `/var/run/nscd/socket`.
+There's a simple `systemd` unit file, too.
+
+If you're on a Debian-based system, you can use the provided Debian package to
+install `nsncd` to run under `systemd`. See `debian/README.source` for how to
+build it - we use a few Rust crates that aren't packaged for stable Debian
+releases.
 
 ## Bug Reports and Contributions
 
