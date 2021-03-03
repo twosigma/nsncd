@@ -15,7 +15,7 @@
  */
 
 use std::convert::TryInto;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::os::unix::ffi::OsStrExt;
 
 use anyhow::{Context, Result};
@@ -42,21 +42,25 @@ where
     debug!(log, "handling request"; "request" => ?request);
     match request.ty {
         RequestType::GETPWBYUID => {
-            let uid = atoi::<u32>(request.key.to_bytes()).context("invalid uid string")?;
+            let key = CStr::from_bytes_with_nul(request.key)?;
+            let uid = atoi::<u32>(key.to_bytes()).context("invalid uid string")?;
             let user = User::from_uid(Uid::from_raw(uid))?;
             send_user(log, user, send_slice)
         }
         RequestType::GETPWBYNAME => {
-            let user = User::from_name(request.key.to_str()?)?;
+            let key = CStr::from_bytes_with_nul(request.key)?;
+            let user = User::from_name(key.to_str()?)?;
             send_user(log, user, send_slice)
         }
         RequestType::GETGRBYGID => {
-            let gid = atoi::<u32>(request.key.to_bytes()).context("invalid gid string")?;
+            let key = CStr::from_bytes_with_nul(request.key)?;
+            let gid = atoi::<u32>(key.to_bytes()).context("invalid gid string")?;
             let group = Group::from_gid(Gid::from_raw(gid))?;
             send_group(log, group, send_slice)
         }
         RequestType::GETGRBYNAME => {
-            let group = Group::from_name(request.key.to_str()?)?;
+            let key = CStr::from_bytes_with_nul(request.key)?;
+            let group = Group::from_name(key.to_str()?)?;
             send_group(log, group, send_slice)
         }
         RequestType::GETHOSTBYADDR
