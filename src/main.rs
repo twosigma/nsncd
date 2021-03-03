@@ -45,17 +45,15 @@
 // - daemon/pidfile stuff
 
 use std::io::prelude::*;
-use std::os::unix::{
-    io::FromRawFd,
-    net::{UnixListener, UnixStream},
-};
+use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::Path;
 use std::thread;
 
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result};
 use slog::{debug, error, Drain};
 use slog_async;
 use slog_term;
-use systemd::daemon::{listen_fds, LISTEN_FDS_START};
 
 mod ffi;
 mod handlers;
@@ -74,6 +72,8 @@ fn handle_stream(log: &slog::Logger, mut stream: UnixStream) -> Result<()> {
     Ok(())
 }
 
+const SOCKET_PATH: &str = "/var/run/nscd/socket";
+
 fn main() -> Result<()> {
     ffi::disable_internal_nscd();
 
@@ -83,13 +83,11 @@ fn main() -> Result<()> {
 
     let logger = slog::Logger::root(drain, slog::o!());
 
-    let listen_fds_found = listen_fds(true)?;
-    ensure!(
-        listen_fds_found == 1,
-        "expected one listen fd, got {}",
-        listen_fds_found
-    );
-    let listener = unsafe { UnixListener::from_raw_fd(LISTEN_FDS_START) };
+    let path = Path::new(SOCKET_PATH);
+    std::fs::create_dir_all(path.parent().expect("socket path has no parent"))?;
+    std::fs::remove_file(path).ok();
+    let listener = UnixListener::bind(path).context("could not bind to socket")?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
 
     for stream in listener.incoming() {
         match stream {
