@@ -23,7 +23,6 @@
 //! need to read both.
 
 use std::convert::TryInto;
-use std::ffi::CStr;
 use std::mem::size_of;
 
 use anyhow::{ensure, Context, Result};
@@ -77,7 +76,7 @@ pub enum RequestType {
 #[derive(Debug)]
 pub struct Request<'a> {
     pub ty: RequestType,
-    pub key: &'a CStr,
+    pub key: &'a [u8],
 }
 
 impl<'a> Request<'a> {
@@ -96,8 +95,10 @@ impl<'a> Request<'a> {
         let key_end = (12 + key_len).try_into()?;
         ensure!(buf.len() >= key_end, "request body too small");
 
-        let key = CStr::from_bytes_with_nul(&buf[12..key_end])?;
-        Ok(Request { ty, key })
+        Ok(Request {
+            ty,
+            key: &buf[12..key_end],
+        })
     }
 }
 
