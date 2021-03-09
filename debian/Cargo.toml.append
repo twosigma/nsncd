@@ -1,5 +1,4 @@
 
 
 [patch.crates-io]
-systemd = { path = "vendor-patched/systemd" }
 syn = { path = "vendor/syn" }

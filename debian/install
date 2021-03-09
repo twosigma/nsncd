@@ -1,3 +1,2 @@
 target/release/nsncd usr/lib
 *.service lib/systemd/system
-*.socket lib/systemd/system

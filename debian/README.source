@@ -16,9 +16,6 @@ internet.
 
 The "debian/rules vendor" target does the following:
  - Runs "cargo vendor" and sets up Cargo configuration
- - Works around an issue where the current version of rustc in
-   Stretch/Buster fails to compile the latest version of the "systemd"
-   crate
  - Works around an issue where the "syn" crate includes a .gitignore
    file, which is automatically ignored by dpkg-source when building the
    source package

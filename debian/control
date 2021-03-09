@@ -2,7 +2,7 @@ Source: nsncd
 Section: misc
 Priority: optional
 Maintainer: Geoffrey Thomas <geofft@twosigma.com>
-Build-Depends: debhelper (>= 12), cargo, libsystemd-dev, pkg-config
+Build-Depends: debhelper (>= 12), cargo, pkg-config
 Standards-Version: 3.9.8
 Homepage: https://github.com/twosigma/nsncd
 VCS-Git: https://github.com/twosigma/nsncd
