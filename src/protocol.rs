@@ -102,6 +102,13 @@ impl<'a> Request<'a> {
     }
 }
 
+// the nscd protocol just puts structs onto a socket and hopes they come out
+// the same size on the other end. it seems to assume there is no padding
+// interpreted by the compiler.
+//
+// this is pretty sketchy, but we have to match it, so all of the structs
+// below use repr(C) and not repr(padded).
+
 /// Structure sent in reply to password query.  Note that this struct is
 /// sent also if the service is disabled or there is no record found.
 #[repr(C)]
@@ -150,5 +157,64 @@ impl GrResponseHeader {
     pub fn as_slice(&self) -> &[u8] {
         let p = self as *const _ as *const u8;
         unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_pw_response_header_as_slice() {
+        let header = PwResponseHeader {
+            version: VERSION,
+            found: 1,
+            pw_name_len: 5,
+            pw_passwd_len: 0,
+            pw_uid: 123,
+            pw_gid: 456,
+            pw_gecos_len: 666,
+            pw_dir_len: 888,
+            pw_shell_len: 4,
+        };
+
+        let mut expected = Vec::with_capacity(4 * 9);
+        {
+            expected.extend_from_slice(&VERSION.to_ne_bytes());
+            expected.extend_from_slice(&1i32.to_ne_bytes());
+            expected.extend_from_slice(&5i32.to_ne_bytes());
+            expected.extend_from_slice(&0i32.to_ne_bytes());
+            expected.extend_from_slice(&123u32.to_ne_bytes());
+            expected.extend_from_slice(&456u32.to_ne_bytes());
+            expected.extend_from_slice(&666i32.to_ne_bytes());
+            expected.extend_from_slice(&888i32.to_ne_bytes());
+            expected.extend_from_slice(&4i32.to_ne_bytes());
+        }
+
+        assert_eq!(header.as_slice(), expected);
+    }
+
+    #[test]
+    fn gr_response_header_as_slice() {
+        let header = GrResponseHeader {
+            version: VERSION,
+            found: 1,
+            gr_name_len: 5,
+            gr_passwd_len: 0,
+            gr_gid: 420,
+            gr_mem_cnt: 1,
+        };
+
+        let mut expected = Vec::with_capacity(4 * 6);
+        {
+            expected.extend_from_slice(&VERSION.to_ne_bytes());
+            expected.extend_from_slice(&1i32.to_ne_bytes());
+            expected.extend_from_slice(&5i32.to_ne_bytes());
+            expected.extend_from_slice(&0i32.to_ne_bytes());
+            expected.extend_from_slice(&420u32.to_ne_bytes());
+            expected.extend_from_slice(&1i32.to_ne_bytes());
+        }
+
+        assert_eq!(header.as_slice(), expected);
     }
 }

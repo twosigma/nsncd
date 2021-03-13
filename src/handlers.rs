@@ -172,3 +172,70 @@ where
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn send_to(v: &mut Vec<u8>) -> impl FnMut(&[u8]) -> Result<()> + '_ {
+        move |bs| {
+            v.extend_from_slice(bs);
+            Ok(())
+        }
+    }
+
+    fn test_logger() -> slog::Logger {
+        Logger::root(slog::Discard, slog::o!())
+    }
+
+    #[test]
+    fn test_handle_request_empty_key() {
+        let mut output = vec![];
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETPWBYNAME,
+            key: &[],
+        };
+
+        assert!(
+            handle_request(&test_logger(), &request, send_to(&mut output)).is_err(),
+            "should error on empty input"
+        );
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_handle_request_nul_data() {
+        let mut output = vec![];
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETPWBYNAME,
+            key: &[0x7F, 0x0, 0x0, 0x01],
+        };
+
+        assert!(
+            handle_request(&test_logger(), &request, send_to(&mut output)).is_err(),
+            "should error on garbage input"
+        );
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_handle_request_current_user() {
+        let current_user = User::from_uid(nix::unistd::geteuid()).unwrap().unwrap();
+
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETPWBYNAME,
+            key: &CString::new(current_user.name.clone())
+                .unwrap()
+                .into_bytes_with_nul(),
+        };
+
+        let mut expected = vec![];
+        send_user(&test_logger(), Some(current_user), send_to(&mut expected))
+            .expect("send_user should serialize current user data");
+
+        let mut output: Vec<u8> = vec![];
+        handle_request(&test_logger(), &request, send_to(&mut output))
+            .expect("should handle request with no error");
+        assert_eq!(expected, output);
+    }
+}
