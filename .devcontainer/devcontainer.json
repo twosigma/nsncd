@@ -24,7 +24,8 @@
 		"vadimcn.vscode-lldb",
 		"mutantdino.resourcemonitor",
 		"stkb.rewrap",
-		"github.vscode-pull-request-github"
+		"github.vscode-pull-request-github",
+		"matklad.rust-analyzer"
 	],
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
