@@ -14,7 +14,8 @@
 		// VS Code don't watch files under ./target
 		"files.watcherExclude": {
 			"**/target/**": true
-		}
+		},
+		"rust-client.engine": "rust-analyzer"
 	},
 
 	// Add the IDs of extensions you want installed when the container is created.
@@ -24,8 +25,7 @@
 		"vadimcn.vscode-lldb",
 		"mutantdino.resourcemonitor",
 		"stkb.rewrap",
-		"github.vscode-pull-request-github",
-		"matklad.rust-analyzer"
+		"github.vscode-pull-request-github"
 	],
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
