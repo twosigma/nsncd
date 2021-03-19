@@ -136,18 +136,12 @@ where
     if let Some(data) = group {
         let name = CString::new(data.name)?;
         let name_bytes = name.to_bytes_with_nul();
-        // The nix crate doesn't give us the password: https://github.com/nix-rust/nix/pull/1338
-        let passwd = CString::new("x")?;
-        let passwd_bytes = passwd.to_bytes_with_nul();
-        let members: Vec<CString> = data
+        let passwd_bytes = data.passwd.to_bytes_with_nul();
+        let members_bytes: Vec<Vec<u8>> = data
             .mem
             .iter()
-            .map(|member| CString::new((*member).as_bytes()))
-            .collect::<Result<Vec<CString>, _>>()?;
-        let members_bytes: Vec<&[u8]> = members
-            .iter()
-            .map(|member| member.to_bytes_with_nul())
-            .collect();
+            .map(|member| CString::new(member.as_bytes()).map(|cs| cs.into_bytes_with_nul()))
+            .collect::<Result<Vec<Vec<u8>>, _>>()?;
 
         let header = protocol::GrResponseHeader {
             version: protocol::VERSION,

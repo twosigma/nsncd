@@ -18,7 +18,7 @@ atoi = "^0.3"
 slog = "^2.5"
 slog-async = "^2.5"
 slog-term = "^2.6"
-nix = "^0.18"
+nix = "^0.20"
 num-derive = "^0.2"
 num-traits = "^0.2"
 
