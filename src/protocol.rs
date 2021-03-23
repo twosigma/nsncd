@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 Two Sigma Open Source, LLC
+ * Copyright 2020-2021 Two Sigma Open Source, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -84,15 +84,26 @@ impl<'a> Request<'a> {
     pub fn parse(buf: &'a [u8]) -> Result<Self> {
         ensure!(buf.len() >= 12, "request body too small: {}", buf.len());
 
-        let version = buf[0..4].try_into().map(i32::from_ne_bytes)?;
+        let version = buf[0..4]
+            .try_into()
+            .map(i32::from_ne_bytes)
+            .context("Converting version to int")?;
         ensure!(version == VERSION, "wrong protocol version {}", version);
 
-        let type_val = buf[4..8].try_into().map(i32::from_ne_bytes)?;
+        let type_val = buf[4..8]
+            .try_into()
+            .map(i32::from_ne_bytes)
+            .context("Converting request type to int")?;
         let ty = FromPrimitive::from_i32(type_val)
             .with_context(|| format!("invalid enum value {}", type_val))?;
 
-        let key_len = buf[8..12].try_into().map(i32::from_ne_bytes)?;
-        let key_end = (12 + key_len).try_into()?;
+        let key_len = buf[8..12]
+            .try_into()
+            .map(i32::from_ne_bytes)
+            .context("Converting key_len to int")?;
+        let key_end = (12 + key_len)
+            .try_into()
+            .with_context(|| format!("Calculating key_end: 12 + {}", key_len))?;
         ensure!(buf.len() >= key_end, "request body too small");
 
         Ok(Request {
