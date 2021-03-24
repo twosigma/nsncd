@@ -22,8 +22,8 @@
 //! `handlers::send_{user,group}`. For a full picture of the protocol, you will
 //! need to read both.
 
-use std::convert::TryInto;
 use std::mem::size_of;
+use std::{array::TryFromSliceError, convert::TryInto, num::TryFromIntError};
 
 use anyhow::{ensure, Result};
 use num_derive::FromPrimitive;
@@ -72,12 +72,15 @@ pub enum RequestType {
 pub enum ParseError {
     #[error("Request body too small: length `{0}`")]
     BufferTooSmallError(usize),
-    #[error("Error converting request field int `{0}`")]
-    IntegerConversionError(&'static str),
+    #[error("Error converting request field int `{field}`")]
+    IntegerConversionError {
+        field: &'static str,
+        source: TryFromSliceError,
+    },
     #[error("Invalid enum value `{0}`")]
     InvalidEnumValue(i32),
-    #[error("Size calculation error for length `{0}`")]
-    SizeError(i32),
+    #[error("Size calculation error for length `{size}`")]
+    SizeError { size: i32, source: TryFromIntError },
     #[error("Invalid protocol version `{0}`")]
     ProtocolVersionError(i32),
 }
@@ -99,28 +102,37 @@ impl<'a> Request<'a> {
     pub fn parse(buf: &'a [u8]) -> Result<Self> {
         ensure!(buf.len() >= 12, ParseError::BufferTooSmallError(buf.len()));
 
-        let version = buf[0..4]
-            .try_into()
-            .map(i32::from_ne_bytes)
-            .map_err(|_| ParseError::IntegerConversionError("version"))?;
+        let version = buf[0..4].try_into().map(i32::from_ne_bytes).map_err(|e| {
+            ParseError::IntegerConversionError {
+                field: "version",
+                source: e,
+            }
+        })?;
         ensure!(
             version == VERSION,
             ParseError::ProtocolVersionError(version)
         );
 
-        let type_val = buf[4..8]
-            .try_into()
-            .map(i32::from_ne_bytes)
-            .map_err(|_| ParseError::IntegerConversionError("type"))?;
+        let type_val = buf[4..8].try_into().map(i32::from_ne_bytes).map_err(|e| {
+            ParseError::IntegerConversionError {
+                field: "type",
+                source: e,
+            }
+        })?;
         let ty = FromPrimitive::from_i32(type_val).ok_or(ParseError::InvalidEnumValue(type_val))?;
 
-        let key_len = buf[8..12]
-            .try_into()
-            .map(i32::from_ne_bytes)
-            .map_err(|_| ParseError::IntegerConversionError("key_len"))?;
+        let key_len = buf[8..12].try_into().map(i32::from_ne_bytes).map_err(|e| {
+            ParseError::IntegerConversionError {
+                field: "key_len",
+                source: e,
+            }
+        })?;
         let key_end = (12 + key_len)
             .try_into()
-            .map_err(|_| ParseError::SizeError(key_len))?;
+            .map_err(|e| ParseError::SizeError {
+                size: key_len,
+                source: e,
+            })?;
         ensure!(
             buf.len() >= key_end,
             ParseError::BufferTooSmallError(buf.len())
