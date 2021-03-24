@@ -18,13 +18,20 @@ use std::convert::TryInto;
 use std::ffi::{CStr, CString};
 use std::os::unix::ffi::OsStrExt;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use atoi::atoi;
 use nix::unistd::{Gid, Group, Uid, User};
 use slog::{debug, Logger};
+use thiserror::Error;
 
 use super::protocol;
 use super::protocol::RequestType;
+
+#[derive(Error, Debug)]
+pub enum HandlerError {
+    #[error("invalid {0} string")]
+    InvalidIdString(&'static str),
+}
 
 /// Handle a request by performing the appropriate lookup and sending the
 /// serialized response back to the client.
@@ -43,7 +50,7 @@ where
     match request.ty {
         RequestType::GETPWBYUID => {
             let key = CStr::from_bytes_with_nul(request.key)?;
-            let uid = atoi::<u32>(key.to_bytes()).context("invalid uid string")?;
+            let uid = atoi::<u32>(key.to_bytes()).ok_or(HandlerError::InvalidIdString("uid"))?;
             let user = User::from_uid(Uid::from_raw(uid))?;
             send_user(log, user, send_slice)
         }
@@ -54,7 +61,7 @@ where
         }
         RequestType::GETGRBYGID => {
             let key = CStr::from_bytes_with_nul(request.key)?;
-            let gid = atoi::<u32>(key.to_bytes()).context("invalid gid string")?;
+            let gid = atoi::<u32>(key.to_bytes()).ok_or(HandlerError::InvalidIdString("gid"))?;
             let group = Group::from_gid(Gid::from_raw(gid))?;
             send_group(log, group, send_slice)
         }

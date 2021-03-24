@@ -25,9 +25,10 @@
 use std::convert::TryInto;
 use std::mem::size_of;
 
-use anyhow::{ensure, Context, Result};
+use anyhow::{ensure, Result};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
+use thiserror::Error;
 
 use nix::libc::{c_int, gid_t, uid_t};
 
@@ -67,6 +68,20 @@ pub enum RequestType {
     LASTREQ,
 }
 
+#[derive(Error, Debug)]
+pub enum ParseError {
+    #[error("Request body too small: length `{0}`")]
+    BufferTooSmallError(usize),
+    #[error("Error converting request field int `{0}`")]
+    IntegerConversionError(&'static str),
+    #[error("Invalid enum value `{0}`")]
+    InvalidEnumValue(i32),
+    #[error("Size calculation error for length `{0}`")]
+    SizeError(i32),
+    #[error("Invalid protocol version `{0}`")]
+    ProtocolVersionError(i32),
+}
+
 /// An incoming request. All requests have a version, a type, and a string key.
 /// This struct keeps the type and key, because that's what we need to reply to
 /// it, we only handle one version and we validate, but don't retain it.
@@ -82,29 +97,34 @@ pub struct Request<'a> {
 impl<'a> Request<'a> {
     /// Parse a Request from a buffer.
     pub fn parse(buf: &'a [u8]) -> Result<Self> {
-        ensure!(buf.len() >= 12, "request body too small: {}", buf.len());
+        ensure!(buf.len() >= 12, ParseError::BufferTooSmallError(buf.len()));
 
         let version = buf[0..4]
             .try_into()
             .map(i32::from_ne_bytes)
-            .context("Converting version to int")?;
-        ensure!(version == VERSION, "wrong protocol version {}", version);
+            .map_err(|_| ParseError::IntegerConversionError("version"))?;
+        ensure!(
+            version == VERSION,
+            ParseError::ProtocolVersionError(version)
+        );
 
         let type_val = buf[4..8]
             .try_into()
             .map(i32::from_ne_bytes)
-            .context("Converting request type to int")?;
-        let ty = FromPrimitive::from_i32(type_val)
-            .with_context(|| format!("invalid enum value {}", type_val))?;
+            .map_err(|_| ParseError::IntegerConversionError("type"))?;
+        let ty = FromPrimitive::from_i32(type_val).ok_or(ParseError::InvalidEnumValue(type_val))?;
 
         let key_len = buf[8..12]
             .try_into()
             .map(i32::from_ne_bytes)
-            .context("Converting key_len to int")?;
+            .map_err(|_| ParseError::IntegerConversionError("key_len"))?;
         let key_end = (12 + key_len)
             .try_into()
-            .with_context(|| format!("Calculating key_end: 12 + {}", key_len))?;
-        ensure!(buf.len() >= key_end, "request body too small");
+            .map_err(|_| ParseError::SizeError(key_len))?;
+        ensure!(
+            buf.len() >= key_end,
+            ParseError::BufferTooSmallError(buf.len())
+        );
 
         Ok(Request {
             ty,
