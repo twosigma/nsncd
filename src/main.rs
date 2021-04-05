@@ -44,6 +44,7 @@
 // - test errors in underlying calls
 // - daemon/pidfile stuff
 
+use std::io::ErrorKind;
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -59,13 +60,27 @@ mod ffi;
 mod handlers;
 mod protocol;
 
+/// Suppress expected errors from writing to the client.
+///
+/// If we send a response that's too big for the client's buffer, the
+/// client will disconnect and not read the rest of our response, and
+/// then come back with a new connection after increasing its buffer.
+/// There's no need to log that, and generally, clients can disappear at
+/// any point.
+fn suppress_expected_errors(error: std::io::Error) -> Result<()> {
+    match error.kind() {
+	ErrorKind::ConnectionReset | ErrorKind::BrokenPipe => Ok(()),
+	_ => Err(error.into()),
+    }
+}
+
 /// Handle a new socket connection, reading the request and sending the response.
 fn handle_stream(log: &slog::Logger, mut stream: UnixStream) -> Result<()> {
     debug!(log, "accepted connection"; "stream" => ?stream);
     let mut buf = [0; 4096];
     let size_read = stream.read(&mut buf)?;
     let request = protocol::Request::parse(&buf[0..size_read])?;
-    handlers::handle_request(log, &request, |s| stream.write_all(s).map_err(|e| e.into()))?;
+    handlers::handle_request(log, &request, |s| stream.write_all(s).or_else(suppress_expected_errors))?;
     stream
         .shutdown(std::net::Shutdown::Both)
         .context("shutting down stream")?;
