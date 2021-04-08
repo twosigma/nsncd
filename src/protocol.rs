@@ -64,6 +64,7 @@ pub enum RequestType {
     GETNETGRENT,
     INNETGR,
     GETFDNETGR,
+    CHANGETOMAKECLIPPYRUN,
     LASTREQ,
 }
 
