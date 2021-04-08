@@ -40,23 +40,27 @@ pub fn handle_request(log: &Logger, request: &protocol::Request) -> Result<Vec<u
             let key = CStr::from_bytes_with_nul(request.key)?;
             let uid = atoi::<u32>(key.to_bytes()).context("invalid uid string")?;
             let user = User::from_uid(Uid::from_raw(uid))?;
-            serialize_user(log, user)
+            debug!(log, "got user"; "user" => ?user);
+            serialize_user(user)
         }
         RequestType::GETPWBYNAME => {
             let key = CStr::from_bytes_with_nul(request.key)?;
             let user = User::from_name(key.to_str()?)?;
-            serialize_user(log, user)
+            debug!(log, "got user"; "user" => ?user);
+            serialize_user(user)
         }
         RequestType::GETGRBYGID => {
             let key = CStr::from_bytes_with_nul(request.key)?;
             let gid = atoi::<u32>(key.to_bytes()).context("invalid gid string")?;
             let group = Group::from_gid(Gid::from_raw(gid))?;
-            serialize_group(log, group)
+            debug!(log, "got group"; "group" => ?group);
+            serialize_group(group)
         }
         RequestType::GETGRBYNAME => {
             let key = CStr::from_bytes_with_nul(request.key)?;
             let group = Group::from_name(key.to_str()?)?;
-            serialize_group(log, group)
+            debug!(log, "got group"; "group" => ?group);
+            serialize_group(group)
         }
         RequestType::GETHOSTBYADDR
         | RequestType::GETHOSTBYADDRv6
@@ -82,8 +86,7 @@ pub fn handle_request(log: &Logger, request: &protocol::Request) -> Result<Vec<u
 
 /// Send a user (passwd entry) back to the client, or a response indicating the
 /// lookup found no such user.
-fn serialize_user(log: &Logger, user: Option<User>) -> Result<Vec<u8>> {
-    debug!(log, "got user"; "user" => ?user);
+fn serialize_user(user: Option<User>) -> Result<Vec<u8>> {
     let mut result = vec![];
     if let Some(data) = user {
         let name = CString::new(data.name)?;
@@ -121,8 +124,7 @@ fn serialize_user(log: &Logger, user: Option<User>) -> Result<Vec<u8>> {
 
 /// Send a group (group entry) back to the client, or a response indicating the
 /// lookup found no such group.
-fn serialize_group(log: &Logger, group: Option<Group>) -> Result<Vec<u8>> {
-    debug!(log, "got group"; "group" => ?group);
+fn serialize_group(group: Option<Group>) -> Result<Vec<u8>> {
     let mut result = vec![];
     if let Some(data) = group {
         let name = CString::new(data.name)?;
@@ -205,7 +207,7 @@ mod test {
                 .into_bytes_with_nul(),
         };
 
-        let expected = serialize_user(&test_logger(), Some(current_user))
+        let expected = serialize_user(Some(current_user))
             .expect("send_user should serialize current user data");
         let output =
             handle_request(&test_logger(), &request).expect("should handle request with no error");

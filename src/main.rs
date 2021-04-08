@@ -81,7 +81,7 @@ fn handle_stream(log: slog::Logger, mut stream: UnixStream) {
     let response = match handlers::handle_request(&log, &request) {
         Ok(x) => x,
         Err(e) => {
-            error!(log, "handling request"; "err" => %e);
+            error!(log, "error handling request"; "err" => %e);
             return;
         }
     };
