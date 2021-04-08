@@ -67,10 +67,14 @@ mod protocol;
 /// then come back with a new connection after increasing its buffer.
 /// There's no need to log that, and generally, clients can disappear at
 /// any point.
-fn suppress_expected_errors(error: std::io::Error) -> Result<()> {
-    match error.kind() {
-	ErrorKind::ConnectionReset | ErrorKind::BrokenPipe => Ok(()),
-	_ => Err(error.into()),
+fn suppress_expected_errors(error: anyhow::Error) -> Result<()> {
+    if let Some(ioerror) = error.downcast_ref::<std::io::Error>() {
+        match ioerror.kind() {
+            ErrorKind::ConnectionReset | ErrorKind::BrokenPipe => Ok(()),
+            _ => Err(error),
+        }
+    } else {
+        Err(error)
     }
 }
 
@@ -80,7 +84,7 @@ fn handle_stream(log: &slog::Logger, mut stream: UnixStream) -> Result<()> {
     let mut buf = [0; 4096];
     let size_read = stream.read(&mut buf)?;
     let request = protocol::Request::parse(&buf[0..size_read])?;
-    handlers::handle_request(log, &request, |s| stream.write_all(s).or_else(suppress_expected_errors))?;
+    handlers::handle_request(log, &request, &mut stream).or_else(suppress_expected_errors)?;
     stream
         .shutdown(std::net::Shutdown::Both)
         .context("shutting down stream")?;
