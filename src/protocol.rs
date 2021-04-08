@@ -38,7 +38,7 @@ pub const VERSION: i32 = 2;
 /// Available services. This enum describes all service types the nscd protocol
 /// knows about, though we only implement `GETPW*` and `GETGR*`.
 #[derive(Debug, FromPrimitive)]
-#[allow(clippy::upper_case_acronyms)]
+//#[allow(clippy::upper_case_acronyms)]
 pub enum RequestType {
     GETPWBYNAME,
     GETPWBYUID,
