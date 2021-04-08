@@ -33,35 +33,30 @@ use super::protocol::RequestType;
 ///
 /// * `log` - A `slog` Logger.
 /// * `request` - The request to handle.
-/// * `send_slice` - A callback that will be used to send bytes back to the client, if
-///   there is a response to send.
-pub fn handle_request<F>(log: &Logger, request: &protocol::Request, send_slice: F) -> Result<()>
-where
-    F: FnMut(&[u8]) -> Result<()>,
-{
+pub fn handle_request(log: &Logger, request: &protocol::Request) -> Result<Vec<u8>> {
     debug!(log, "handling request"; "request" => ?request);
     match request.ty {
         RequestType::GETPWBYUID => {
             let key = CStr::from_bytes_with_nul(request.key)?;
             let uid = atoi::<u32>(key.to_bytes()).context("invalid uid string")?;
             let user = User::from_uid(Uid::from_raw(uid))?;
-            send_user(log, user, send_slice)
+            serialize_user(log, user)
         }
         RequestType::GETPWBYNAME => {
             let key = CStr::from_bytes_with_nul(request.key)?;
             let user = User::from_name(key.to_str()?)?;
-            send_user(log, user, send_slice)
+            serialize_user(log, user)
         }
         RequestType::GETGRBYGID => {
             let key = CStr::from_bytes_with_nul(request.key)?;
             let gid = atoi::<u32>(key.to_bytes()).context("invalid gid string")?;
             let group = Group::from_gid(Gid::from_raw(gid))?;
-            send_group(log, group, send_slice)
+            serialize_group(log, group)
         }
         RequestType::GETGRBYNAME => {
             let key = CStr::from_bytes_with_nul(request.key)?;
             let group = Group::from_name(key.to_str()?)?;
-            send_group(log, group, send_slice)
+            serialize_group(log, group)
         }
         RequestType::GETHOSTBYADDR
         | RequestType::GETHOSTBYADDRv6
@@ -81,17 +76,15 @@ where
         | RequestType::GETNETGRENT
         | RequestType::INNETGR
         | RequestType::LASTREQ
-        | RequestType::INITGROUPS => Ok(()),
+        | RequestType::INITGROUPS => Ok(vec![]),
     }
 }
 
 /// Send a user (passwd entry) back to the client, or a response indicating the
 /// lookup found no such user.
-fn send_user<F>(log: &Logger, user: Option<User>, mut send_slice: F) -> Result<()>
-where
-    F: FnMut(&[u8]) -> Result<()>,
-{
+fn serialize_user(log: &Logger, user: Option<User>) -> Result<Vec<u8>> {
     debug!(log, "got user"; "user" => ?user);
+    let mut result = vec![];
     if let Some(data) = user {
         let name = CString::new(data.name)?;
         let name_bytes = name.to_bytes_with_nul();
@@ -113,26 +106,24 @@ where
             pw_dir_len: dir_bytes.len().try_into()?,
             pw_shell_len: shell_bytes.len().try_into()?,
         };
-        send_slice(header.as_slice())?;
-        send_slice(name_bytes)?;
-        send_slice(passwd_bytes)?;
-        send_slice(gecos_bytes)?;
-        send_slice(dir_bytes)?;
-        send_slice(shell_bytes)?;
+        result.extend_from_slice(header.as_slice());
+        result.extend_from_slice(name_bytes);
+        result.extend_from_slice(passwd_bytes);
+        result.extend_from_slice(gecos_bytes);
+        result.extend_from_slice(dir_bytes);
+        result.extend_from_slice(shell_bytes);
     } else {
         let header = protocol::PwResponseHeader::default();
-        send_slice(header.as_slice())?;
+        result.extend_from_slice(header.as_slice());
     }
-    Ok(())
+    Ok(result)
 }
 
 /// Send a group (group entry) back to the client, or a response indicating the
 /// lookup found no such group.
-fn send_group<F>(log: &Logger, group: Option<Group>, mut send_slice: F) -> Result<()>
-where
-    F: FnMut(&[u8]) -> Result<()>,
-{
+fn serialize_group(log: &Logger, group: Option<Group>) -> Result<Vec<u8>> {
     debug!(log, "got group"; "group" => ?group);
+    let mut result = vec![];
     if let Some(data) = group {
         let name = CString::new(data.name)?;
         let name_bytes = name.to_bytes_with_nul();
@@ -157,32 +148,25 @@ where
             gr_gid: data.gid.as_raw(),
             gr_mem_cnt: data.mem.len().try_into()?,
         };
-        send_slice(header.as_slice())?;
+        result.extend_from_slice(header.as_slice());
         for member_bytes in members_bytes.iter() {
-            send_slice(&i32::to_ne_bytes(member_bytes.len().try_into()?))?;
+            result.extend_from_slice(&i32::to_ne_bytes(member_bytes.len().try_into()?));
         }
-        send_slice(name_bytes)?;
-        send_slice(passwd_bytes)?;
+        result.extend_from_slice(name_bytes);
+        result.extend_from_slice(passwd_bytes);
         for member_bytes in members_bytes.iter() {
-            send_slice(member_bytes)?;
+            result.extend_from_slice(member_bytes);
         }
     } else {
         let header = protocol::GrResponseHeader::default();
-        send_slice(header.as_slice())?;
+        result.extend_from_slice(header.as_slice());
     }
-    Ok(())
+    Ok(result)
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-
-    fn send_to(v: &mut Vec<u8>) -> impl FnMut(&[u8]) -> Result<()> + '_ {
-        move |bs| {
-            v.extend_from_slice(bs);
-            Ok(())
-        }
-    }
 
     fn test_logger() -> slog::Logger {
         Logger::root(slog::Discard, slog::o!())
@@ -190,32 +174,24 @@ mod test {
 
     #[test]
     fn test_handle_request_empty_key() {
-        let mut output = vec![];
         let request = protocol::Request {
             ty: protocol::RequestType::GETPWBYNAME,
             key: &[],
         };
 
-        assert!(
-            handle_request(&test_logger(), &request, send_to(&mut output)).is_err(),
-            "should error on empty input"
-        );
-        assert!(output.is_empty());
+        let result = handle_request(&test_logger(), &request);
+        assert!(result.is_err(), "should error on empty input");
     }
 
     #[test]
     fn test_handle_request_nul_data() {
-        let mut output = vec![];
         let request = protocol::Request {
             ty: protocol::RequestType::GETPWBYNAME,
             key: &[0x7F, 0x0, 0x0, 0x01],
         };
 
-        assert!(
-            handle_request(&test_logger(), &request, send_to(&mut output)).is_err(),
-            "should error on garbage input"
-        );
-        assert!(output.is_empty());
+        let result = handle_request(&test_logger(), &request);
+        assert!(result.is_err(), "should error on garbage input");
     }
 
     #[test]
@@ -229,13 +205,10 @@ mod test {
                 .into_bytes_with_nul(),
         };
 
-        let mut expected = vec![];
-        send_user(&test_logger(), Some(current_user), send_to(&mut expected))
+        let expected = serialize_user(&test_logger(), Some(current_user))
             .expect("send_user should serialize current user data");
-
-        let mut output: Vec<u8> = vec![];
-        handle_request(&test_logger(), &request, send_to(&mut output))
-            .expect("should handle request with no error");
+        let output =
+            handle_request(&test_logger(), &request).expect("should handle request with no error");
         assert_eq!(expected, output);
     }
 }
