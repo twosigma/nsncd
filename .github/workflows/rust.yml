@@ -16,8 +16,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - run: rustup component add clippy
     - name: rust-clippy-check
       uses: actions-rs/clippy-check@v1.0.7
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
     - name: Build
       run: cargo build --verbose
     - name: Run tests
