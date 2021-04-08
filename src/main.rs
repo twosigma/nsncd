@@ -53,8 +53,6 @@ use std::thread;
 
 use anyhow::{Context, Result};
 use slog::{debug, error, Drain};
-use slog_async;
-use slog_term;
 
 mod ffi;
 mod handlers;
