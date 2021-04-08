@@ -24,9 +24,8 @@ jobs:
       run: cargo clippy
     - name: Install dependencies
       run: |
-        echo deb http://archive.ubuntu.com/ubuntu bionic-backports main universe| sudo tee /etc/apt/sources.list.d/backports.list
         sudo apt-get update
         sudo apt-get install build-essential dpkg-dev
-        sudo apt-get -t bionic-backports build-dep .
+        sudo apt-get build-dep .
     - name: CI
       run: ci/test.sh
