@@ -52,7 +52,7 @@ use std::path::Path;
 use std::thread;
 
 use anyhow::{Context, Result};
-use slog::{debug, error, Drain};
+use slog::{debug, error, o, Drain};
 
 mod ffi;
 mod handlers;
@@ -72,17 +72,35 @@ fn suppress_expected_errors(error: std::io::Error) -> Result<()> {
     }
 }
 
+
 /// Handle a new socket connection, reading the request and sending the response.
-fn handle_stream(log: &slog::Logger, mut stream: UnixStream) -> Result<()> {
+fn handle_stream(log: &slog::Logger, mut stream: UnixStream) {
     debug!(log, "accepted connection"; "stream" => ?stream);
     let mut buf = [0; 4096];
-    let size_read = stream.read(&mut buf)?;
-    let request = protocol::Request::parse(&buf[0..size_read])?;
-    handlers::handle_request(log, &request, |s| stream.write_all(s).or_else(suppress_expected_errors))?;
-    stream
-        .shutdown(std::net::Shutdown::Both)
-        .context("shutting down stream")?;
-    Ok(())
+    let size_read = match stream.read(&mut buf) {
+        Ok(x) => x,
+        Err(e) => {
+            debug!(log, "reading from connection"; "e" => ?e);
+            return;
+        }
+    };
+    let request = match protocol::Request::parse(&buf[0..size_read]) {
+        Ok(x) => x,
+        Err(e) => {
+            debug!(log, "parsing"; "e" => ?e);
+            return;
+        }
+    };
+    match handlers::handle_request(log, &request, |s| stream.write_all(s).or_else(suppress_expected_errors)) {
+        Ok(x) => x,
+        Err(e) => {
+            error!(log, "handling"; "e" => ?e);
+            return;
+        }
+    }
+    if let Err(e) = stream.shutdown(std::net::Shutdown::Both) {
+        debug!(log, "shutting down stream"; "e" => ?e);
+    }
 }
 
 const SOCKET_PATH: &str = "/var/run/nscd/socket";
@@ -105,16 +123,12 @@ fn main() -> Result<()> {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                thread::spawn({
-                    let thread_logger = logger.clone();
-                    let peer_addr = stream.peer_addr().ok();
-                    move || match handle_stream(&thread_logger, stream) {
-                        Ok(_) => {}
-                        Err(err) => {
-                            error!(thread_logger, "error handling connection"; "err" => %err, "peer" => ?peer_addr);
-                        }
-                    }
-                });
+                let peer_addr = stream.peer_addr().ok();
+                let peer_addr_as_text = format!("{:?}", peer_addr);
+                let thread_logger = logger.new(o!("peer" => peer_addr_as_text));
+                thread::spawn(
+                    move || handle_stream(&thread_logger, stream)
+                );
             }
             Err(err) => {
                 error!(logger, "error accepting connection"; "err" => %err);
