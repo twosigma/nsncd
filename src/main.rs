@@ -44,45 +44,61 @@
 // - test errors in underlying calls
 // - daemon/pidfile stuff
 
-use std::io::ErrorKind;
 use std::io::prelude::*;
+use std::io::ErrorKind;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::thread;
 
 use anyhow::{Context, Result};
-use slog::{debug, error, Drain};
+use slog::{debug, error, o, Drain};
 
 mod ffi;
 mod handlers;
 mod protocol;
 
-/// Suppress expected errors from writing to the client.
-///
-/// If we send a response that's too big for the client's buffer, the
-/// client will disconnect and not read the rest of our response, and
-/// then come back with a new connection after increasing its buffer.
-/// There's no need to log that, and generally, clients can disappear at
-/// any point.
-fn suppress_expected_errors(error: std::io::Error) -> Result<()> {
-    match error.kind() {
-	ErrorKind::ConnectionReset | ErrorKind::BrokenPipe => Ok(()),
-	_ => Err(error.into()),
-    }
-}
-
 /// Handle a new socket connection, reading the request and sending the response.
-fn handle_stream(log: &slog::Logger, mut stream: UnixStream) -> Result<()> {
+fn handle_stream(log: slog::Logger, mut stream: UnixStream) {
     debug!(log, "accepted connection"; "stream" => ?stream);
     let mut buf = [0; 4096];
-    let size_read = stream.read(&mut buf)?;
-    let request = protocol::Request::parse(&buf[0..size_read])?;
-    handlers::handle_request(log, &request, |s| stream.write_all(s).or_else(suppress_expected_errors))?;
-    stream
-        .shutdown(std::net::Shutdown::Both)
-        .context("shutting down stream")?;
-    Ok(())
+    let size_read = match stream.read(&mut buf) {
+        Ok(x) => x,
+        Err(e) => {
+            debug!(log, "reading from connection"; "err" => %e);
+            return;
+        }
+    };
+    let request = match protocol::Request::parse(&buf[0..size_read]) {
+        Ok(x) => x,
+        Err(e) => {
+            debug!(log, "parsing request"; "err" => %e);
+            return;
+        }
+    };
+    let type_str = format!("{:?}", request.ty);
+    let log = log.new(o!("request_type" => type_str));
+    let response = match handlers::handle_request(&log, &request) {
+        Ok(x) => x,
+        Err(e) => {
+            error!(log, "error handling request"; "err" => %e);
+            return;
+        }
+    };
+    if let Err(e) = stream.write_all(response.as_slice()) {
+        match e.kind() {
+            // If we send a response that's too big for the client's buffer,
+            // the client will disconnect and not read the rest of our
+            // response, and then come back with a new connection after
+            // increasing its buffer. There's no need to log that, and
+            // generally, clients can disappear at any point.
+            ErrorKind::ConnectionReset | ErrorKind::BrokenPipe => (),
+            _ => debug!(log, "sending response"; "response_len" => response.len(), "err" => %e),
+        };
+    }
+    if let Err(e) = stream.shutdown(std::net::Shutdown::Both) {
+        debug!(log, "shutting down stream"; "err" => %e);
+    }
 }
 
 const SOCKET_PATH: &str = "/var/run/nscd/socket";
@@ -105,16 +121,8 @@ fn main() -> Result<()> {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                thread::spawn({
-                    let thread_logger = logger.clone();
-                    let peer_addr = stream.peer_addr().ok();
-                    move || match handle_stream(&thread_logger, stream) {
-                        Ok(_) => {}
-                        Err(err) => {
-                            error!(thread_logger, "error handling connection"; "err" => %err, "peer" => ?peer_addr);
-                        }
-                    }
-                });
+                let thread_logger = logger.clone();
+                thread::spawn(move || handle_stream(thread_logger, stream));
             }
             Err(err) => {
                 error!(logger, "error accepting connection"; "err" => %err);
