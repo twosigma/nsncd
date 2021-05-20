@@ -50,6 +50,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::thread;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use slog::{debug, error, o, Drain};
@@ -57,6 +58,57 @@ use slog::{debug, error, o, Drain};
 mod ffi;
 mod handlers;
 mod protocol;
+mod semaphore;
+
+const SOCKET_PATH: &str = "/var/run/nscd/socket";
+const MAX_THREADS: usize = 64;
+const MAX_THREADS_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn main() -> Result<()> {
+    ffi::disable_internal_nscd();
+
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = slog_term::FullFormat::new(decorator).build().fuse();
+    let drain = slog_async::Async::new(drain).build().fuse();
+
+    let logger = slog::Logger::root(drain, slog::o!());
+
+    let path = Path::new(SOCKET_PATH);
+    std::fs::create_dir_all(path.parent().expect("socket path has no parent"))?;
+    std::fs::remove_file(path).ok();
+    let listener = UnixListener::bind(path).context("could not bind to socket")?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
+
+    let sem = semaphore::Semaphore::new(MAX_THREADS);
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                let thread_logger = logger.clone();
+
+                // block on acquring a permit before spawning the thread so
+                // that we actually limit the number of threads used.
+                let permit = match sem.acquire(MAX_THREADS_WAIT_TIMEOUT) {
+                    Ok(p) => p,
+                    Err(_) => {
+                        anyhow::bail!("timed out waiting to spawn a handler thread. blowing up!")
+                    }
+                };
+
+                thread::spawn(move || {
+                    let _permit = permit;
+                    handle_stream(thread_logger, stream);
+                });
+            }
+            Err(err) => {
+                error!(logger, "error accepting connection"; "err" => %err);
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
 
 /// Handle a new socket connection, reading the request and sending the response.
 fn handle_stream(log: slog::Logger, mut stream: UnixStream) {
@@ -99,37 +151,4 @@ fn handle_stream(log: slog::Logger, mut stream: UnixStream) {
     if let Err(e) = stream.shutdown(std::net::Shutdown::Both) {
         debug!(log, "shutting down stream"; "err" => %e);
     }
-}
-
-const SOCKET_PATH: &str = "/var/run/nscd/socket";
-
-fn main() -> Result<()> {
-    ffi::disable_internal_nscd();
-
-    let decorator = slog_term::TermDecorator::new().build();
-    let drain = slog_term::FullFormat::new(decorator).build().fuse();
-    let drain = slog_async::Async::new(drain).build().fuse();
-
-    let logger = slog::Logger::root(drain, slog::o!());
-
-    let path = Path::new(SOCKET_PATH);
-    std::fs::create_dir_all(path.parent().expect("socket path has no parent"))?;
-    std::fs::remove_file(path).ok();
-    let listener = UnixListener::bind(path).context("could not bind to socket")?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
-
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                let thread_logger = logger.clone();
-                thread::spawn(move || handle_stream(thread_logger, stream));
-            }
-            Err(err) => {
-                error!(logger, "error accepting connection"; "err" => %err);
-                break;
-            }
-        }
-    }
-
-    Ok(())
 }
