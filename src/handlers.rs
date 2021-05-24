@@ -20,8 +20,8 @@ use std::os::unix::ffi::OsStrExt;
 
 use anyhow::{Context, Result};
 use atoi::atoi;
-use nix::unistd::{Gid, Group, Uid, User};
-use slog::{debug, Logger};
+use nix::unistd::{getgrouplist, Gid, Group, Uid, User};
+use slog::{debug, error, Logger};
 
 use super::protocol;
 use super::protocol::RequestType;
@@ -62,6 +62,55 @@ pub fn handle_request(log: &Logger, request: &protocol::Request) -> Result<Vec<u
             debug!(log, "got group"; "group" => ?group);
             serialize_group(group)
         }
+        RequestType::INITGROUPS => {
+            // initgroups is a little strange: in the public libc API, the
+            // interface is getgrouplist(), which requires that you pass one
+            // extra GID (intended to be the user's primary GID) in, which is
+            // returned as part of the result. In the glibc NSS implementation,
+            // NSS backends can implement initgroups_dyn(), which is not
+            // expected to find the primary GID (for example,
+            // _nss_files_initgroups_dyn() only looks at /etc/group);
+            // alternatively, both glibc itself and its NSCD implementation will
+            // fall back to enumerating all groups with getgrent(). It will then
+            // tack on the provided GID before returning, if it's not already in
+            // the list.
+            //
+            // There's no public API to just get the supplementary groups, so we
+            // need to get the primary group and pass it to getgrouplist()
+            // (since we don't want to implement the NSS API ourselves).
+            //
+            // One corollary is that getting supplementary groups never fails;
+            // if you ask for a nonexistent user, they just happen not to be in
+            // any groups. So the "found" value is mostly used to indicate
+            // whether the response is valid - in other words, we return found =
+            // 1 and an empty list if User::from_name fails, meaning the
+            // client can be happy with the response we provide.
+            //
+            // nix::getgrouplist can fail, in theory, if the number of groups is
+            // greater than NGROUPS_MAX. (On Linux this is 65536 and therefore
+            // pretty unlikely in practice.) There are only two things we can do
+            // here: return a false reply or refuse the lookup. (Even if we
+            // return found=0, glibc appears to treat that just like found=1
+            // ngrps=0, i.e., successful empty reply. It would be useful for
+            // glibc to fall back to NSS here, but it does not.) If we refuse
+            // the lookup, glibc caches the fact that we don't support
+            // INITGROUPS - and uses the same variable for whether we support
+            // GETGR*, which causes the process to skip nsncd for all future
+            // lookups. So, in this theoretical case, we log our perfidy and
+            // return an empty list.
+            let key = CStr::from_bytes_with_nul(request.key)?;
+            let user = User::from_name(key.to_str()?)?;
+            debug!(log, "got user"; "user" => ?user);
+            let groups = if let Some(user) = user {
+                getgrouplist(key, user.gid).unwrap_or_else(|e| {
+                    error!(log, "nix::getgrouplist failed, returning empty list"; "err" => %e);
+                    vec![]
+                })
+            } else {
+                vec![]
+            };
+            serialize_initgroups(groups)
+        }
         RequestType::GETHOSTBYADDR
         | RequestType::GETHOSTBYADDRv6
         | RequestType::GETHOSTBYNAME
@@ -79,8 +128,7 @@ pub fn handle_request(log: &Logger, request: &protocol::Request) -> Result<Vec<u
         | RequestType::GETFDNETGR
         | RequestType::GETNETGRENT
         | RequestType::INNETGR
-        | RequestType::LASTREQ
-        | RequestType::INITGROUPS => Ok(vec![]),
+        | RequestType::LASTREQ => Ok(vec![]),
     }
 }
 
@@ -163,6 +211,24 @@ fn serialize_group(group: Option<Group>) -> Result<Vec<u8>> {
         let header = protocol::GrResponseHeader::default();
         result.extend_from_slice(header.as_slice());
     }
+    Ok(result)
+}
+
+/// Send a user's group list (initgroups/getgrouplist response) back to the
+/// client.
+fn serialize_initgroups(groups: Vec<Gid>) -> Result<Vec<u8>> {
+    let mut result = vec![];
+    let header = protocol::InitgroupsResponseHeader {
+        version: protocol::VERSION,
+        found: 1,
+        ngrps: groups.len().try_into()?,
+    };
+
+    result.extend_from_slice(header.as_slice());
+    for group in groups.iter() {
+        result.extend_from_slice(&i32::to_ne_bytes(group.as_raw().try_into()?));
+    }
+
     Ok(result)
 }
 
