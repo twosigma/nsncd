@@ -6,6 +6,9 @@
 override_dh_auto_build:
 	cargo build --release
 
+override_dh_auto_clean:
+	cargo clean
+
 # See README.source.
 vendor:
 	mkdir -p .cargo
