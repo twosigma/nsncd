@@ -36,7 +36,7 @@ use nix::libc::{c_int, gid_t, uid_t};
 pub const VERSION: i32 = 2;
 
 /// Available services. This enum describes all service types the nscd protocol
-/// knows about, though we only implement `GETPW*` and `GETGR*`.
+/// knows about, though we only implement `GETPW*`, `GETGR*`, and `INITGROUPS`.
 #[derive(Debug, FromPrimitive)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum RequestType {
@@ -161,6 +161,27 @@ impl GrResponseHeader {
     }
 }
 
+/// Structure sent in reply to initgroups query.  Note that this struct is
+/// sent also if the service is disabled or there is no record found.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct InitgroupsResponseHeader {
+    pub version: c_int,
+    pub found: c_int,
+    pub ngrps: c_int,
+}
+
+impl InitgroupsResponseHeader {
+    /// Serialize the header to bytes.
+    ///
+    /// The C implementations of nscd just take the address of the struct, so
+    /// we will too, to make it easy to convince ourselves it's correct.
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -214,6 +235,24 @@ mod test {
             expected.extend_from_slice(&0i32.to_ne_bytes());
             expected.extend_from_slice(&420u32.to_ne_bytes());
             expected.extend_from_slice(&1i32.to_ne_bytes());
+        }
+
+        assert_eq!(header.as_slice(), expected);
+    }
+
+    #[test]
+    fn initgroups_response_header_as_slice() {
+        let header = InitgroupsResponseHeader {
+            version: VERSION,
+            found: 1,
+            ngrps: 10,
+        };
+
+        let mut expected = Vec::with_capacity(4 * 3);
+        {
+            expected.extend_from_slice(&VERSION.to_ne_bytes());
+            expected.extend_from_slice(&1i32.to_ne_bytes());
+            expected.extend_from_slice(&10i32.to_ne_bytes());
         }
 
         assert_eq!(header.as_slice(), expected);
