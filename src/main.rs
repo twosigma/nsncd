@@ -49,14 +49,94 @@ use std::io::ErrorKind;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
-use std::thread;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
+use crossbeam_channel as channel;
 use slog::{debug, error, o, Drain};
+use threadpool::ThreadPool;
 
 mod ffi;
 mod handlers;
 mod protocol;
+
+fn main() -> Result<()> {
+    const SOCKET_PATH: &str = "/var/run/nscd/socket";
+    const N_WORKERS: usize = 256;
+    const HANDOFF_TIMEOUT: Duration = Duration::from_secs(3);
+
+    ffi::disable_internal_nscd();
+
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = slog_term::FullFormat::new(decorator).build().fuse();
+    let drain = slog_async::Async::new(drain).build().fuse();
+
+    let logger = slog::Logger::root(drain, slog::o!());
+
+    let (pool, handle) = worker_pool(logger.clone(), N_WORKERS);
+
+    let path = Path::new(SOCKET_PATH);
+    std::fs::create_dir_all(path.parent().expect("socket path has no parent"))?;
+    std::fs::remove_file(path).ok();
+    let listener = UnixListener::bind(path).context("could not bind to socket")?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                // if something goes wrong and it's multiple seconds until we
+                // get a response, kill the process.
+                //
+                // the timeout here is set such that nss will fall back to system
+                // libc before this timeout is hit - clients will already be
+                // giving up and going elsewhere so crashing the process should
+                // not make a bad situation worse.
+                match handle.send_timeout(stream, HANDOFF_TIMEOUT) {
+                    Err(channel::SendTimeoutError::Timeout(_)) => {
+                        anyhow::bail!("timed out waiting for an available worker: exiting")
+                    }
+                    Err(channel::SendTimeoutError::Disconnected(_)) => {
+                        anyhow::bail!("aborting: worker channel is disconnected")
+                    }
+                    _ => { /*ok!*/ }
+                }
+            }
+            Err(err) => {
+                error!(logger, "error accepting connection"; "err" => %err);
+                break;
+            }
+        }
+    }
+
+    // drop the worker handle so that the worker pool shuts down. every worker
+    // task should break and the process should exit.
+    std::mem::drop(handle);
+    pool.join();
+
+    Ok(())
+}
+
+fn worker_pool(log: slog::Logger, n_workers: usize) -> (ThreadPool, channel::Sender<UnixStream>) {
+    let pool = ThreadPool::new(n_workers);
+    let (tx, rx) = channel::bounded(0);
+
+    // TODO: figure out how to name the worker threads in each worker
+    // TODO: report actively working threads
+    for _ in 0..n_workers {
+        let log = log.clone();
+        let rx = rx.clone();
+
+        pool.execute(move || loop {
+            let log = log.clone();
+            match rx.recv() {
+                Ok(stream) => handle_stream(log, stream),
+                Err(channel::RecvError) => break,
+            }
+        });
+    }
+
+    (pool, tx)
+}
 
 /// Handle a new socket connection, reading the request and sending the response.
 fn handle_stream(log: slog::Logger, mut stream: UnixStream) {
@@ -101,35 +181,22 @@ fn handle_stream(log: slog::Logger, mut stream: UnixStream) {
     }
 }
 
-const SOCKET_PATH: &str = "/var/run/nscd/socket";
+#[cfg(test)]
+mod pool_test {
+    use super::*;
 
-fn main() -> Result<()> {
-    ffi::disable_internal_nscd();
+    #[test]
+    fn worker_shutdown() {
+        let logger = {
+            let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
+            let drain = slog_term::FullFormat::new(decorator).build().fuse();
+            let drain = slog_async::Async::new(drain).build().fuse();
+            slog::Logger::root(drain, slog::o!())
+        };
 
-    let decorator = slog_term::TermDecorator::new().build();
-    let drain = slog_term::FullFormat::new(decorator).build().fuse();
-    let drain = slog_async::Async::new(drain).build().fuse();
+        let (pool, handle) = worker_pool(logger, 123);
 
-    let logger = slog::Logger::root(drain, slog::o!());
-
-    let path = Path::new(SOCKET_PATH);
-    std::fs::create_dir_all(path.parent().expect("socket path has no parent"))?;
-    std::fs::remove_file(path).ok();
-    let listener = UnixListener::bind(path).context("could not bind to socket")?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
-
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                let thread_logger = logger.clone();
-                thread::spawn(move || handle_stream(thread_logger, stream));
-            }
-            Err(err) => {
-                error!(logger, "error accepting connection"; "err" => %err);
-                break;
-            }
-        }
+        std::mem::drop(handle);
+        pool.join();
     }
-
-    Ok(())
 }

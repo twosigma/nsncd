@@ -18,9 +18,11 @@ atoi = "^0.3"
 slog = "^2.5"
 slog-async = "^2.5"
 slog-term = "^2.6"
+crossbeam-channel = "^0.4"
 nix = "^0.18"
 num-derive = "^0.2"
 num-traits = "^0.2"
+threadpool = "^1.8"
 
 [dev-dependencies]
 criterion = "^0.3"
