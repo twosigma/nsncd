@@ -44,6 +44,9 @@ impl WorkGroup {
         self.fs.push(Box::new(f));
     }
 
+    // Box<dyn Any + Send + 'static> is how the stdlib defines JoinHandle panic
+    // data, so that's what we're doing too.
+    #[allow(clippy::type_complexity)]
     pub fn run(
         self,
     ) -> (

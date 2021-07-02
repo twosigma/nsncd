@@ -113,7 +113,7 @@ fn spawn_acceptor(
     wg.add(move |ctx| {
         for stream in listener.incoming() {
             if ctx.is_shutdown() {
-                break
+                break;
             }
 
             match stream {
@@ -163,10 +163,9 @@ fn spawn_workers(
 
         // ctx is ignored - the acceptor thread will close the rx channel if
         // the wg is shutdown and it's time to exit.
-        wg.add(move |_ctx| loop {
-            match rx.recv() {
-                Ok(stream) => handle_stream(&log, stream),
-                Err(channel::RecvError) => break,
+        wg.add(move |_ctx| {
+            while let Ok(stream) = rx.recv() {
+                handle_stream(&log, stream);
             }
         });
     }
