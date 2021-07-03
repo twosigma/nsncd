@@ -169,6 +169,7 @@ fn serialize_group(group: Option<Group>) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use nix::libc::{c_int, gid_t, uid_t};
 
     fn test_logger() -> slog::Logger {
         Logger::root(slog::Discard, slog::o!())
@@ -211,6 +212,121 @@ mod test {
             .expect("send_user should serialize current user data");
         let output =
             handle_request(&test_logger(), &request).expect("should handle request with no error");
+        assert_eq!(expected, output);
+    }
+
+    #[test]
+    fn test_serialize_user_notfound() {
+        let mut expected = vec![];
+        // pub version: c_int,
+        expected.extend_from_slice(&c_int::from(0i32).to_ne_bytes());
+        // pub found: c_int,
+        expected.extend_from_slice(&c_int::from(0i32).to_ne_bytes());
+        // pub pw_name_len: c_int,
+        expected.extend_from_slice(&c_int::from(0i32).to_ne_bytes());
+        // pub pw_passwd_len: c_int,
+        expected.extend_from_slice(&c_int::from(0i32).to_ne_bytes());
+        // pub pw_uid: uid_t,
+        expected.extend_from_slice(&uid_t::from(0u32).to_ne_bytes());
+        // pub pw_gid: gid_t,
+        expected.extend_from_slice(&gid_t::from(0u32).to_ne_bytes());
+        // pub pw_gecos_len: c_int,
+        expected.extend_from_slice(&c_int::from(0i32).to_ne_bytes());
+        // pub pw_dir_len: c_int,
+        expected.extend_from_slice(&c_int::from(0i32).to_ne_bytes());
+        // pub pw_shell_len: c_int,
+        expected.extend_from_slice(&c_int::from(0i32).to_ne_bytes());
+        let output = serialize_user(None).unwrap();
+        assert_eq!(expected, output);
+    }
+
+    #[test]
+    fn test_serialize_user() {
+        let user = User::from_name("root").unwrap().unwrap();
+        let mut expected = vec![];
+        // pub version: c_int,
+        expected.extend_from_slice(&c_int::from(protocol::VERSION).to_ne_bytes());
+        // pub found: c_int,
+        expected.extend_from_slice(&c_int::from(1i32).to_ne_bytes());
+        // pub pw_name_len: c_int,
+        expected
+            .extend_from_slice(&c_int::from(user.name.as_bytes().len() as i32 + 1).to_ne_bytes());
+        // pub pw_passwd_len: c_int,
+        expected.extend_from_slice(
+            &c_int::from(user.passwd.as_bytes_with_nul().len() as i32).to_ne_bytes(),
+        );
+        // pub pw_uid: uid_t,
+        expected.extend_from_slice(&user.uid.as_raw().to_ne_bytes());
+        // pub pw_gid: gid_t,
+        expected.extend_from_slice(&user.gid.as_raw().to_ne_bytes());
+        // pub pw_gecos_len: c_int,
+        expected.extend_from_slice(
+            &c_int::from(user.gecos.as_bytes_with_nul().len() as i32).to_ne_bytes(),
+        );
+        // pub pw_dir_len: c_int,
+        expected
+            .extend_from_slice(&c_int::from(user.dir.as_os_str().len() as i32 + 1).to_ne_bytes());
+        // pub pw_shell_len: c_int,
+        expected
+            .extend_from_slice(&c_int::from(user.shell.as_os_str().len() as i32 + 1).to_ne_bytes());
+        expected.extend([user.name.as_bytes(), &[0u8]].concat());
+        expected.extend(user.passwd.as_bytes_with_nul());
+        expected.extend(user.gecos.as_bytes_with_nul());
+        expected.extend([user.dir.as_os_str().as_bytes(), &[0u8]].concat());
+        expected.extend([user.shell.as_os_str().as_bytes(), &[0u8]].concat());
+
+        let output = serialize_user(Some(user)).unwrap();
+        assert_eq!(expected, output);
+    }
+
+    #[test]
+    fn test_serialize_group_notfound() {
+        let mut expected = vec![];
+        // pub version: c_int,
+        expected.extend_from_slice(&c_int::from(0i32).to_ne_bytes());
+        // pub found: c_int,
+        expected.extend_from_slice(&c_int::from(0i32).to_ne_bytes());
+        // pub gr_name_len: c_int,
+        expected.extend_from_slice(&c_int::from(0i32).to_ne_bytes());
+        // pub gr_passwd_len: c_int,
+        expected.extend_from_slice(&c_int::from(0i32).to_ne_bytes());
+        // pub gr_gid: gid_t,
+        expected.extend_from_slice(&gid_t::from(0u32).to_ne_bytes());
+        // pub gr_mem_cnt: c_int,
+        expected.extend_from_slice(&c_int::from(0i32).to_ne_bytes());
+
+        let output = serialize_group(None).unwrap();
+        assert_eq!(expected, output);
+    }
+
+    #[test]
+    fn test_serialize_group() {
+        let group = Group::from_name("root").unwrap().unwrap();
+        let mut expected = vec![];
+        // pub version: c_int,
+        expected.extend_from_slice(&c_int::from(protocol::VERSION).to_ne_bytes());
+        // pub found: c_int,
+        expected.extend_from_slice(&c_int::from(1i32).to_ne_bytes());
+        // pub gr_name_len: c_int,
+        expected
+            .extend_from_slice(&c_int::from(group.name.as_bytes().len() as i32 + 1).to_ne_bytes());
+        // pub gr_passwd_len: c_int,
+        expected.extend_from_slice(&c_int::from(2i32).to_ne_bytes());
+        // pub gr_gid: gid_t,
+        expected.extend_from_slice(&group.gid.as_raw().to_ne_bytes());
+        // pub gr_mem_cnt: c_int,
+        expected.extend_from_slice(&c_int::from(group.mem.len() as i32).to_ne_bytes());
+
+        for mem in group.mem.iter() {
+            expected.extend_from_slice(&c_int::from(mem.as_bytes().len() as i32 + 1).to_ne_bytes());
+        }
+        expected.extend([group.name.as_bytes(), &[0u8]].concat());
+        expected.extend(["x".as_bytes(), &[0u8]].concat());
+        for mem in group.mem.iter() {
+            expected.extend([mem.as_bytes(), &[0u8]].concat());
+        }
+
+        let output = serialize_group(Some(group)).unwrap();
         assert_eq!(expected, output);
     }
 }
