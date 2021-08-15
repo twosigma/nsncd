@@ -14,13 +14,14 @@ license = "Apache-2.0"
 
 [dependencies]
 anyhow = "^1.0"
-atoi = "^0.3"
-slog = "^2.5"
-slog-async = "^2.5"
-slog-term = "^2.6"
-crossbeam-channel = "^0.4"
-nix = "^0.18"
-num-derive = "^0.2"
+atoi = "^0.4"
+slog = "^2.7"
+slog-async = "^2.7"
+slog-term = "^2.8"
+crossbeam-channel = "^0.5"
+# Hold at 0.21 - 0.22 MSRV is greater than Debian stretch
+nix = "^0.21"
+num-derive = "^0.3"
 num-traits = "^0.2"
 
 [dev-dependencies]
