@@ -1,3 +1,14 @@
+nsncd (1.2) unstable; urgency=medium
+
+  * Add initgroups support.
+  * Use a fixed pool of threads to handle incoming requests.
+  * Improve logging and do not log dropped client connections (which
+    happen in normal operation).
+  * Use nix v0.21, which increases the maximum passwd/group buffer size
+    from 16kB to 1MB.
+
+ -- Geoffrey Thomas <geofft@twosigma.com>  Wed, 11 Aug 2021 18:20:31 -0400
+
 nsncd (1.1) unstable; urgency=medium
 
   * Handle requests with internal NULs (fixes twosigma/nsncd#7).
