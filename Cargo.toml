@@ -20,7 +20,7 @@ slog-async = "^2.7"
 slog-term = "^2.8"
 crossbeam-channel = "^0.5"
 # Hold at 0.21 - 0.22 MSRV is greater than Debian stretch
-nix = "^0.21"
+nix = "^0.21.2"
 num-derive = "^0.3"
 num-traits = "^0.2"
 
