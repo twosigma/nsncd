@@ -1,3 +1,11 @@
+nsncd (1.2.1) unstable; urgency=medium
+
+  * Bump nix dependency to 0.21.2 to pick up fix for nix-rust/nix#1541
+    aka RUSTSEC-2021-0119, memory corruption when using initgroups on a
+    user in more than 16 groups.
+
+ -- Geoffrey Thomas <geofft@twosigma.com>  Thu, 07 Oct 2021 17:30:16 -0400
+
 nsncd (1.2) unstable; urgency=medium
 
   * Add initgroups support.
