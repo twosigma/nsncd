@@ -20,11 +20,12 @@
 #include <nss.h>
 #include <pwd.h>
 #include <string.h>
+#include <stdlib.h>
 
 enum nss_status
 _nss_whatami_getpwnam_r(const char *name, struct passwd *result, char *buffer, size_t buflen, int *errnop)
 {
-	if (strcmp(name, "whatami") == 0) {
+	if (strcmp(name, "whatami") == 0 || strncmp(name, "am_i_", 5) == 0) {
 		if (buflen < 16) {
 			*errnop = ERANGE;
 			return NSS_STATUS_TRYAGAIN;
@@ -41,4 +42,35 @@ _nss_whatami_getpwnam_r(const char *name, struct passwd *result, char *buffer, s
 	} else {
 		return NSS_STATUS_NOTFOUND;
 	}
+}
+
+enum nss_status
+_nss_whatami_initgroups_dyn(const char *user, gid_t group, long int *start, long int *size, gid_t **groups, long int limit, int *errnop)
+{
+	char buffer[21] = "am_i_";
+	prctl(PR_GET_NAME, buffer + 5);
+	if (strcmp(user, buffer) != 0) {
+		return NSS_STATUS_SUCCESS;
+	}
+
+	if (*size - *start < 20) {
+		if (limit > 0 && *size + 20 > limit) {
+			*errnop = ERANGE;
+			return NSS_STATUS_TRYAGAIN;
+		}
+		gid_t *newgroups = realloc(*groups, (*size + 20) * sizeof(**groups));
+		if (newgroups == NULL) {
+			*errnop = ENOMEM;
+			return NSS_STATUS_TRYAGAIN;
+		}
+		*groups = newgroups;
+		*size += 20;
+	}
+
+	for (int i = 0; i < 20; i++) {
+		(*groups)[*start + i] = 100001 + i;
+	}
+	*start += 20;
+
+	return NSS_STATUS_SUCCESS;
 }
