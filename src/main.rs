@@ -44,6 +44,7 @@
 // - test errors in underlying calls
 // - daemon/pidfile stuff
 
+use std::env;
 use std::io::prelude::*;
 use std::io::ErrorKind;
 use std::os::unix::fs::PermissionsExt;
@@ -63,8 +64,6 @@ mod work_group;
 use work_group::WorkGroup;
 
 const SOCKET_PATH: &str = "/var/run/nscd/socket";
-const N_WORKERS: usize = 256;
-const HANDOFF_TIMEOUT: Duration = Duration::from_secs(3);
 
 fn main() -> Result<()> {
     ffi::disable_internal_nscd();
@@ -75,15 +74,24 @@ fn main() -> Result<()> {
 
     let logger = slog::Logger::root(drain, slog::o!());
 
-    let mut wg = WorkGroup::new();
-    let tx = spawn_workers(&mut wg, &logger, N_WORKERS);
-
+    let worker_count = env_usize("NSNCD_WORKER_COUNT", 8);
+    let handoff_timeout = Duration::from_secs(env_usize("NSNCD_HANDOFF_TIMEOUT", 3) as u64);
     let path = Path::new(SOCKET_PATH);
+
+    slog::info!(logger, "started";
+        "path" => ?path,
+        "worker_count" => worker_count,
+        "handoff_timeout" => ?handoff_timeout,
+    );
+
+    let mut wg = WorkGroup::new();
+    let tx = spawn_workers(&mut wg, &logger, worker_count);
+
     std::fs::create_dir_all(path.parent().expect("socket path has no parent"))?;
     std::fs::remove_file(path).ok();
     let listener = UnixListener::bind(path).context("could not bind to socket")?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
-    spawn_acceptor(&mut wg, &logger, listener, tx);
+    spawn_acceptor(&mut wg, &logger, listener, tx, handoff_timeout);
 
     let (result, handles) = wg.run();
     if let Err(e) = result {
@@ -102,11 +110,20 @@ fn main() -> Result<()> {
     }
 }
 
+fn env_usize(var: &'static str, default: usize) -> usize {
+    if let Some(value) = env::var(var).ok().and_then(|v| v.parse().ok()) {
+        value
+    } else {
+        default
+    }
+}
+
 fn spawn_acceptor(
     wg: &mut WorkGroup,
     log: &slog::Logger,
     listener: UnixListener,
     tx: channel::Sender<UnixStream>,
+    handoff_timeout: Duration,
 ) {
     let log = log.new(o!("thread" => "accept"));
 
@@ -124,7 +141,7 @@ fn spawn_acceptor(
                 // libc before this timeout is hit - clients will already be
                 // giving up and going elsewhere so crashing the process should
                 // not make a bad situation worse.
-                Ok(stream) => match tx.send_timeout(stream, HANDOFF_TIMEOUT) {
+                Ok(stream) => match tx.send_timeout(stream, handoff_timeout) {
                     Err(channel::SendTimeoutError::Timeout(_)) => {
                         error!(log, "timed out waiting for an available worker");
                         break;
