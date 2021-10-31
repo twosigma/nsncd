@@ -45,23 +45,19 @@
 // - daemon/pidfile stuff
 
 use std::env;
-use std::io::prelude::*;
 use std::io::ErrorKind;
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
-use crossbeam_channel as channel;
 use slog::{debug, error, o, Drain};
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{UnixListener, UnixStream};
 
 mod ffi;
 mod handlers;
 mod protocol;
-mod work_group;
-
-use work_group::WorkGroup;
 
 const SOCKET_PATH: &str = "/var/run/nscd/socket";
 
@@ -74,40 +70,46 @@ fn main() -> Result<()> {
 
     let logger = slog::Logger::root(drain, slog::o!());
 
-    let worker_count = env_usize("NSNCD_WORKER_COUNT", 8);
-    let handoff_timeout = Duration::from_secs(env_usize("NSNCD_HANDOFF_TIMEOUT", 3) as u64);
+    // build a tokio runtime and immediately set it as the main-thread
+    // runtime with enter. this lets us call functions that assume a
+    // thread-local runtime exists, like UnixListener::bind
+    let threads = env_usize("NSNCD_THREADS", 2);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(threads)
+        .thread_name("nsncd")
+        .enable_io()
+        .enable_time()
+        .build()
+        .unwrap();
+    let _rt_context = runtime.enter();
+
+    // let worker_count = env_usize("NSNCD_WORKER_COUNT", 8);
+    // let handoff_timeout = Duration::from_secs(env_usize("NSNCD_HANDOFF_TIMEOUT", 3) as u64);
     let path = Path::new(SOCKET_PATH);
+    let listener = {
+        // clean up the existing nscd socket
+        std::fs::create_dir_all(path.parent().expect("socket path has no parent"))?;
+        std::fs::remove_file(path).ok();
+
+        // create a new one and permission it appropriately
+        let listener = UnixListener::bind(path).context("could not bind to socket")?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
+
+        listener
+    };
 
     slog::info!(logger, "started";
         "path" => ?path,
-        "worker_count" => worker_count,
-        "handoff_timeout" => ?handoff_timeout,
+        "threads" => threads,
     );
 
-    let mut wg = WorkGroup::new();
-    let tx = spawn_workers(&mut wg, &logger, worker_count);
-
-    std::fs::create_dir_all(path.parent().expect("socket path has no parent"))?;
-    std::fs::remove_file(path).ok();
-    let listener = UnixListener::bind(path).context("could not bind to socket")?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
-    spawn_acceptor(&mut wg, &logger, listener, tx, handoff_timeout);
-
-    let (result, handles) = wg.run();
-    if let Err(e) = result {
-        // if a thread unwound with a panic, just start panicing here. the nss
-        // modules in this process space are probably very sad, and we'll
-        // stop serving requests abruptly.
-        std::panic::resume_unwind(e);
-    } else {
-        // something else happened that made a process exit, so try to exit
-        // gracefully.
-        slog::info!(logger, "shutting down");
-        for handle in handles {
-            let _ = handle.join();
-        }
-        Ok(())
-    }
+    // FIXME: we have to do something to catch panics in the tasks that handle
+    //        individual connections. our options seem to be:
+    //        - figure out a way to do it ourselves
+    //        - set panic = abort when building and not getting backtraces.
+    //
+    runtime.block_on(run(&logger, listener));
+    Ok(())
 }
 
 fn env_usize(var: &'static str, default: usize) -> usize {
@@ -118,97 +120,40 @@ fn env_usize(var: &'static str, default: usize) -> usize {
     }
 }
 
-fn spawn_acceptor(
-    wg: &mut WorkGroup,
-    log: &slog::Logger,
-    listener: UnixListener,
-    tx: channel::Sender<UnixStream>,
-    handoff_timeout: Duration,
-) {
-    let log = log.new(o!("thread" => "accept"));
+async fn run(log: &slog::Logger, listener: UnixListener) {
+    let log = log.new(o!("task" => "accept"));
 
-    wg.add(move |ctx| {
-        for stream in listener.incoming() {
-            if ctx.is_shutdown() {
-                break;
+    loop {
+        match listener.accept().await {
+            // TODO: format remote addr and use it as a field in the logger passed
+            //       to handle_stream
+            Ok((stream, _addr)) => {
+                let log = log.new(o!("task" => "handle"));
+                tokio::spawn(handle_stream(log, stream));
             }
-
-            match stream {
-                // if something goes wrong and it's multiple seconds until we
-                // get a response, kill the process.
-                //
-                // the timeout here is set such that nss will fall back to system
-                // libc before this timeout is hit - clients will already be
-                // giving up and going elsewhere so crashing the process should
-                // not make a bad situation worse.
-                Ok(stream) => match tx.send_timeout(stream, handoff_timeout) {
-                    Err(channel::SendTimeoutError::Timeout(_)) => {
-                        error!(log, "timed out waiting for an available worker");
-                        break;
-                    }
-                    Err(channel::SendTimeoutError::Disconnected(_)) => {
-                        error!(log, "worker channel is disconnected");
-                        break;
-                    }
-                    Ok(()) => { /*ok!*/ }
-                },
-                Err(err) => {
-                    error!(log, "error accepting connection"; "err" => %err);
-                    break;
-                }
-            }
+            Err(_) => {} // connection failed, move on
         }
-
-        // at the end of the listener loop, drop tx so that any working threads
-        // still waiting for a connection have a chance to finish.
-        //
-        // this is unnecessary but explicit
-        std::mem::drop(tx);
-    });
-}
-
-fn spawn_workers(
-    wg: &mut WorkGroup,
-    log: &slog::Logger,
-    n_workers: usize,
-) -> channel::Sender<UnixStream> {
-    let (tx, rx) = channel::bounded(0);
-
-    for worker_id in 0..n_workers {
-        let rx = rx.clone();
-        let log = log.new(o!("thread" => format!("worker_{}", worker_id)));
-
-        // ctx is ignored - the acceptor thread will close the rx channel if
-        // the wg is shutdown and it's time to exit.
-        wg.add(move |_ctx| {
-            while let Ok(stream) = rx.recv() {
-                handle_stream(&log, stream);
-            }
-        });
     }
-
-    tx
 }
 
-fn handle_stream(log: &slog::Logger, mut stream: UnixStream) {
-    debug!(log, "accepted connection"; "stream" => ?stream);
+async fn handle_stream(log: slog::Logger, mut stream: UnixStream) {
     let mut buf = [0; 4096];
-    let size_read = match stream.read(&mut buf) {
-        Ok(x) => x,
+    let bytes_read = match stream.read(&mut buf).await {
+        Ok(n) => n,
         Err(e) => {
-            debug!(log, "reading from connection"; "err" => %e);
+            debug!(log, "error reading from conn"; "err" => %e);
             return;
         }
     };
-    let request = match protocol::Request::parse(&buf[0..size_read]) {
+
+    let request = match protocol::Request::parse(&buf[0..bytes_read]) {
         Ok(x) => x,
         Err(e) => {
             debug!(log, "parsing request"; "err" => %e);
             return;
         }
     };
-    let type_str = format!("{:?}", request.ty);
-    let log = log.new(o!("request_type" => type_str));
+
     let response = match handlers::handle_request(&log, &request) {
         Ok(x) => x,
         Err(e) => {
@@ -216,7 +161,8 @@ fn handle_stream(log: &slog::Logger, mut stream: UnixStream) {
             return;
         }
     };
-    if let Err(e) = stream.write_all(response.as_slice()) {
+
+    if let Err(e) = stream.write_all(response.as_slice()).await {
         match e.kind() {
             // If we send a response that's too big for the client's buffer,
             // the client will disconnect and not read the rest of our
@@ -227,7 +173,8 @@ fn handle_stream(log: &slog::Logger, mut stream: UnixStream) {
             _ => debug!(log, "sending response"; "response_len" => response.len(), "err" => %e),
         };
     }
-    if let Err(e) = stream.shutdown(std::net::Shutdown::Both) {
+
+    if let Err(e) = stream.shutdown().await {
         debug!(log, "shutting down stream"; "err" => %e);
     }
 }
