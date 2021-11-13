@@ -8,8 +8,28 @@
 	"runArgs": [ "--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined" ],
 
 	// Set *default* container specific settings.json values on container create.
-	"settings": { 
-		"terminal.integrated.shell.linux": "/bin/bash",
+	"settings": {
+		"terminal.integrated.profiles.linux": {
+			"bash": {
+				"path": "bash",
+				"icon": "terminal-bash"
+			},
+			"zsh": {
+				"path": "zsh"
+			},
+			"fish": {
+				"path": "fish"
+			},
+			"tmux": {
+				"path": "tmux",
+				"icon": "terminal-tmux"
+			},
+			"pwsh": {
+				"path": "pwsh",
+				"icon": "terminal-powershell"
+			}
+		},
+		"terminal.integrated.defaultProfile.linux": "bash",
 		"lldb.executable": "/usr/bin/lldb",
 		// VS Code don't watch files under ./target
 		"files.watcherExclude": {
@@ -24,7 +44,9 @@
 		"vadimcn.vscode-lldb",
 		"mutantdino.resourcemonitor",
 		"stkb.rewrap",
-		"github.vscode-pull-request-github"
+		"github.vscode-pull-request-github",
+		"dawidd6.debian-vscode",
+		"coolbear.systemd-unit-file"
 	],
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
