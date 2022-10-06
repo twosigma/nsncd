@@ -446,6 +446,7 @@ dependencies = [
  "num-derive",
  "num-traits",
  "once_cell",
+ "sd-notify",
  "slog",
  "slog-async",
  "slog-term",
@@ -646,6 +647,12 @@ name = "scratch"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c8132065adcfd6e02db789d9285a0deb2f3fcb04002865ab67d5fb103533898"
+
+[[package]]
+name = "sd-notify"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "621e3680f3e07db4c9c2c3fb07c6223ab2fab2e54bd3c04c3ae037990f428c32"
 
 [[package]]
 name = "serde"
