@@ -111,13 +111,25 @@ pub fn handle_request(log: &Logger, request: &protocol::Request) -> Result<Vec<u
             };
             serialize_initgroups(groups)
         }
+
+        // There's no cache to invalidate
+        RequestType::INVALIDATE => {
+            debug!(log, "received invalidate request, ignoring");
+            Ok(vec![])
+        }
+
+        // We don't want clients to be able to shut down nsncd.
+        RequestType::SHUTDOWN => {
+            debug!(log, "received shutdown request, ignoring");
+            Ok(vec![])
+        }
+
+        // Not implemented (yet)
         RequestType::GETHOSTBYADDR
         | RequestType::GETHOSTBYADDRv6
         | RequestType::GETHOSTBYNAME
         | RequestType::GETHOSTBYNAMEv6
-        | RequestType::SHUTDOWN
         | RequestType::GETSTAT
-        | RequestType::INVALIDATE
         | RequestType::GETFDPW
         | RequestType::GETFDGR
         | RequestType::GETFDHST
