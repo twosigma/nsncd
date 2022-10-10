@@ -14,17 +14,20 @@
  * limitations under the License.
  */
 
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::ffi::{CStr, CString};
 use std::os::unix::ffi::OsStrExt;
 
 use anyhow::{Context, Result};
 use atoi::atoi;
+use core::mem::size_of;
+use nix::sys::socket::{AddressFamily, IpAddr};
 use nix::unistd::{getgrouplist, Gid, Group, Uid, User};
 use slog::{debug, error, Logger};
 
 use super::protocol;
-use super::protocol::RequestType;
+use super::protocol::{AiResponse, AiResponseHeader, RequestType};
 
 /// Handle a request by performing the appropriate lookup and sending the
 /// serialized response back to the client.
@@ -111,6 +114,28 @@ pub fn handle_request(log: &Logger, request: &protocol::Request) -> Result<Vec<u
             };
             serialize_initgroups(groups)
         }
+        RequestType::GETAI => {
+            let hostname = CStr::from_bytes_with_nul(request.key)?.to_str()?;
+            let resp = dns_lookup::getaddrinfo(Some(hostname), None, None);
+
+            let ai_resp: AiResponse = match resp {
+                Ok(ai_resp_iter) => {
+                    let addrs: HashSet<IpAddr> = ai_resp_iter
+                        .filter_map(|e| e.ok())
+                        .map(|e| IpAddr::from_std(&e.sockaddr.ip()))
+                        .collect();
+                    AiResponse {
+                        canon_name: hostname.to_string(),
+                        addrs: addrs.iter().copied().collect::<Vec<IpAddr>>(),
+                    }
+                }
+                Err(_) => AiResponse {
+                    canon_name: hostname.to_string(),
+                    addrs: vec!()
+                },
+            };
+            Ok(serialize_address_info(&ai_resp)?)
+        }
         RequestType::GETHOSTBYADDR
         | RequestType::GETHOSTBYADDRv6
         | RequestType::GETHOSTBYNAME
@@ -121,7 +146,6 @@ pub fn handle_request(log: &Logger, request: &protocol::Request) -> Result<Vec<u
         | RequestType::GETFDPW
         | RequestType::GETFDGR
         | RequestType::GETFDHST
-        | RequestType::GETAI
         | RequestType::GETSERVBYNAME
         | RequestType::GETSERVBYPORT
         | RequestType::GETFDSERV
@@ -232,6 +256,78 @@ fn serialize_initgroups(groups: Vec<Gid>) -> Result<Vec<u8>> {
     Ok(result)
 }
 
+/// Serialize a [RequestType::GETAI] response to the wire.
+///
+/// This wire format has been implemented by reading the `addhstaiX`
+/// function living in the `nscd/aicache.c` glibc file. We copy the
+/// exact same behaviour, aside from the caching part.
+///
+/// The wire getaddrinfo call result is serialized like this:
+///
+/// 1. version: int32. Hardcoded to 2.
+/// 2. found: int32. 1 if we have a result, 0 if we don't.
+/// 3. naddrs: int32. Number of IPv4/6 adresses we're about to write.
+/// 4. addrslen: int32. Total lenght of the IPv4/6 adresses we're
+///    about to write.
+/// 5. canonlen: int32. Total lenght of the null-terminated canonical
+///    name string.
+/// 6. error: int32. Error code. Always 0 in the current nscd
+///           implementation.
+/// 7. addrs: \[BE-encoded IPv4/IPv6\]. We sequentially write the
+///    IPv4 and IPv6 bytes using a big endian encoding. There's no
+///    padding, an IPv4 will be 4 bytes wide, an IPv6 16 bytes wide.
+/// 8. addr_family: \[uint8\]. This array mirrors the addrs array. Each
+///    addr element will be mirrored in this array, except we'll write
+///    the associated IP addr family number. AF_INET for an IPv4,
+///    AF_INET6 for a v6.
+fn serialize_address_info(resp: &AiResponse) -> Result<Vec<u8>> {
+    let mut b_families: Vec<u8> = Vec::with_capacity(2);
+    let mut b_addrs: Vec<u8> = Vec::with_capacity(2);
+    for addr in &resp.addrs {
+        match addr {
+            IpAddr::V4(ip) => {
+                b_families.push(AddressFamily::Inet as u8);
+                for octet in ip.octets() {
+                    b_addrs.push(octet);
+                }
+            }
+            IpAddr::V6(ip) => {
+                b_families.push(AddressFamily::Inet6 as u8);
+                for segment in ip.segments() {
+                    for byte in u16::to_be_bytes(segment) {
+                        b_addrs.push(byte);
+                    }
+                }
+            }
+        }
+    }
+    let addrslen = b_addrs.len();
+    if addrslen > 0 {
+        let canon_name = resp.canon_name.clone();
+        let b_canon_name = CString::new(canon_name)?.into_bytes_with_nul();
+        let ai_response_header = AiResponseHeader {
+            version: protocol::VERSION,
+            found: 1,
+            naddrs: resp.addrs.len() as i32,
+            addrslen: addrslen as i32,
+            canonlen: b_canon_name.len() as i32,
+            error: protocol::H_ERRNO_NETDB_SUCCESS,
+        };
+
+        let total_len = size_of::<AiResponseHeader>() + b_addrs.len() + b_families.len();
+        let mut buffer = Vec::with_capacity(total_len);
+        buffer.extend_from_slice(ai_response_header.as_slice());
+        buffer.extend_from_slice(&b_addrs);
+        buffer.extend_from_slice(&b_families);
+        buffer.extend_from_slice(&b_canon_name);
+        Ok(buffer)
+    } else {
+        let mut buffer = Vec::with_capacity(size_of::<AiResponseHeader>());
+        buffer.extend_from_slice(protocol::AI_RESPONSE_HEADER_NOT_FOUND.as_slice());
+        Ok(buffer)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -277,6 +373,103 @@ mod test {
             .expect("send_user should serialize current user data");
         let output =
             handle_request(&test_logger(), &request).expect("should handle request with no error");
+        assert_eq!(expected, output);
+    }
+
+    #[test]
+    fn test_handle_request_getai() {
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETAI,
+            key: &CString::new("localhost".to_string())
+                .unwrap()
+                .into_bytes_with_nul(),
+        };
+
+        // The getaddrinfo addresses ordering is quite unpredictable.
+        // Trying the two potential orderings.
+        // We could also be on a IPv4-only machine on CI.
+        let gen_ai_resp = |addrs| protocol::AiResponse {
+            addrs,
+            canon_name: "localhost".to_string(),
+        };
+        let ai_resp_1 = gen_ai_resp(vec![
+            IpAddr::new_v6(0, 0, 0, 0, 0, 0, 0, 1),
+            IpAddr::new_v4(127, 0, 0, 1),
+        ]);
+        let ai_resp_2 = gen_ai_resp(vec![
+            IpAddr::new_v4(127, 0, 0, 1),
+            IpAddr::new_v6(0, 0, 0, 0, 0, 0, 0, 1),
+        ]);
+        let ai_resp_3 = gen_ai_resp(vec![IpAddr::new_v4(127, 0, 0, 1)]);
+        let expected_1: Vec<u8> = serialize_address_info(&ai_resp_1)
+            .expect("serialize_address_info should serialize the addresseses");
+        let expected_2: Vec<u8> = serialize_address_info(&ai_resp_2)
+            .expect("serialize_address_info should serialize the addresseses");
+        let expected_3: Vec<u8> = serialize_address_info(&ai_resp_3)
+            .expect("serialize_address_info should serialize the addresseses");
+
+        let output =
+            handle_request(&test_logger(), &request).expect("should handle request with no error");
+
+        assert!(
+            expected_1 == output || expected_2 == output || expected_3 == output,
+            "\nExpecting \n{:?}\nTo be equal to\n{:?}\nor\n{:?}\nor\n{:?}\n",
+            output,
+            expected_1,
+            expected_2,
+            expected_3
+        );
+    }
+
+    #[test]
+    fn test_handle_request_getai_no_results() {
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETAI,
+            key: &CString::new("dontexist".to_string())
+                .unwrap()
+                .into_bytes_with_nul(),
+        };
+
+        let expected = protocol::AI_RESPONSE_HEADER_NOT_FOUND.as_slice();
+        let output =
+            handle_request(&test_logger(), &request).expect("should handle request with no error");
+
+        assert_eq!(expected, output);
+    }
+
+    /// This test compares the [serialize_adress_info] output to a
+    /// byte array generated by the original nscd implementation.
+    #[test]
+    fn test_serialize_address_info() {
+        let test_response = AiResponse {
+            addrs: vec![
+                IpAddr::new_v6(0, 0, 0, 0, 0, 0, 0, 1),
+                IpAddr::new_v4(127, 0, 0, 1),
+            ],
+            canon_name: "localhost".to_string(),
+        };
+
+        let expected: Vec<u8> = vec![
+            // Response Header
+            // ===============
+            2, 0, 0, 0, // version number = 2
+            1, 0, 0, 0, // found = 1
+            2, 0, 0, 0, // naddrs = 2
+            20, 0, 0, 0, // addrslen = 4 + 16 = 20
+            10, 0, 0, 0, // canonlen = 10
+            0, 0, 0, 0, // error = 0
+            // Response Payload
+            // ================
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, // addr1: [::1] 16 zeros + 1, BE
+            127, 0, 0, 1, // addr2: 127.0.0.1, BE
+            // addresses families
+            10, // addr1: AF_INET6 = 10
+            2,  // addr2: AF_INET = 2
+            // canon_name: "localhost" + null byte
+            108, 111, 99, 97, 108, 104, 111, 115, 116, 0,
+        ];
+        let output = serialize_address_info(&test_response)
+            .expect("serialize_address_info should serialize the addresseses");
         assert_eq!(expected, output);
     }
 }

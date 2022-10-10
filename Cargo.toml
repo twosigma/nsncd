@@ -23,6 +23,7 @@ crossbeam-channel = "^0.5"
 nix = "^0.21.2"
 num-derive = "^0.3"
 num-traits = "^0.2"
+dns-lookup = "^1.0.8"
 
 [dev-dependencies]
 criterion = "^0.3"
