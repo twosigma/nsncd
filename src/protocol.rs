@@ -182,6 +182,33 @@ impl InitgroupsResponseHeader {
     }
 }
 
+/// Structure used to hold the reply header of a
+/// gethostbyaddr[v6]/gethostbyname[v6] request.
+/// Maps to the hst_response_header struct in nscd.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct HstResponseHeader {
+    pub version: c_int,
+    pub found: c_int,           // 0 or 1, -1 if disabled
+    pub h_name_len: c_int,      // length of the hostname null-terminated
+    pub h_aliases_cnt: c_int,   // number of aliases (0)
+    pub h_addrtype: c_int,      // AF_INET or AF_INET6
+    pub h_length: c_int,        // length of the address
+    pub h_addr_list_cnt: c_int, // number of addresses (1)
+    pub error: c_int,           // H_ERRNO_*
+}
+
+impl HstResponseHeader {
+    /// Serialize the header to bytes.
+    ///
+    /// The C implementations of nscd just take the address of the struct, so
+    /// we will too, to make it easy to convince ourselves it's correct.
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -253,6 +280,35 @@ mod test {
             expected.extend_from_slice(&VERSION.to_ne_bytes());
             expected.extend_from_slice(&1i32.to_ne_bytes());
             expected.extend_from_slice(&10i32.to_ne_bytes());
+        }
+
+        assert_eq!(header.as_slice(), expected);
+    }
+
+    #[test]
+    fn hst_response_header_as_slice() {
+        let header = HstResponseHeader {
+            version: VERSION,
+            found: 1,
+            h_name_len: 10,
+            h_aliases_cnt: 0,
+            h_addrtype: nix::sys::socket::AddressFamily::Inet6 as i32,
+            h_length: 16,
+            h_addr_list_cnt: 1,
+            error: 0,
+        };
+
+        let mut expected = Vec::with_capacity(4 * 8);
+        {
+            expected.extend_from_slice(&VERSION.to_ne_bytes());
+            expected.extend_from_slice(&1i32.to_ne_bytes());
+            expected.extend_from_slice(&10i32.to_ne_bytes());
+            expected.extend_from_slice(&0i32.to_ne_bytes());
+            expected
+                .extend_from_slice(&(nix::sys::socket::AddressFamily::Inet6 as i32).to_ne_bytes());
+            expected.extend_from_slice(&16i32.to_ne_bytes());
+            expected.extend_from_slice(&1i32.to_ne_bytes());
+            expected.extend_from_slice(&0i32.to_ne_bytes());
         }
 
         assert_eq!(header.as_slice(), expected);
