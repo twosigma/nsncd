@@ -35,6 +35,12 @@ use nix::libc::{c_int, gid_t, uid_t};
 /// of each message header.
 pub const VERSION: i32 = 2;
 
+/// Errors used in HstResponseHeader struct
+pub const H_ERRNO_NETDB_INTERNAL: i32 = -1;
+pub const H_ERRNO_HOST_NOT_FOUND: i32 = 1; // Authoritative Answer Host not found.
+#[allow(dead_code)]
+pub const H_ERRNO_TRY_AGAIN: i32 = 2; // Non-Authoritative Host not found
+
 /// Available services. This enum describes all service types the nscd protocol
 /// knows about, though we only implement `GETPW*`, `GETGR*`, and `INITGROUPS`.
 #[derive(Clone, Copy, Debug, FromPrimitive, ToPrimitive)]
