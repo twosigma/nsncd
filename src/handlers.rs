@@ -124,20 +124,28 @@ pub fn handle_request(log: &Logger, request: &protocol::Request) -> Result<Vec<u
             Ok(vec![])
         }
 
+        // These will normally send an FD pointing to the internal cache structure,
+        // which clients use to look into the cache contents on their own.
+        // We don't cache, and we don't want clients to poke around in cache structures either.
+        // Luckily clients fall back to explicit queries if no FDs are sent over.
+        RequestType::GETFDPW
+        | RequestType::GETFDGR
+        | RequestType::GETFDHST
+        | RequestType::GETFDSERV
+        | RequestType::GETFDNETGR => {
+            debug!(log, "received GETFD* request, ignoring");
+            Ok(vec![])
+        }
+
         // Not implemented (yet)
         RequestType::GETHOSTBYADDR
         | RequestType::GETHOSTBYADDRv6
         | RequestType::GETHOSTBYNAME
         | RequestType::GETHOSTBYNAMEv6
         | RequestType::GETSTAT
-        | RequestType::GETFDPW
-        | RequestType::GETFDGR
-        | RequestType::GETFDHST
         | RequestType::GETAI
         | RequestType::GETSERVBYNAME
         | RequestType::GETSERVBYPORT
-        | RequestType::GETFDSERV
-        | RequestType::GETFDNETGR
         | RequestType::GETNETGRENT
         | RequestType::INNETGR
         | RequestType::LASTREQ => Ok(vec![]),
