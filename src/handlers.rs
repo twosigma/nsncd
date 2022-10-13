@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::ffi::{CStr, CString};
 use std::net::{IpAddr, SocketAddr};
@@ -23,8 +24,12 @@ use anyhow::{bail, Context, Result};
 use atoi::atoi;
 use dns_lookup::{getaddrinfo, getnameinfo, AddrInfoHints};
 use nix::libc::{AF_INET6, NI_NUMERICSERV, SOCK_STREAM};
+use nix::sys::socket::AddressFamily;
 use nix::unistd::{getgrouplist, Gid, Group, Uid, User};
 use slog::{debug, error, Logger};
+use std::mem::size_of;
+
+use crate::protocol::{AiResponse, AiResponseHeader};
 
 use super::config::Config;
 use super::protocol;
@@ -135,6 +140,32 @@ pub fn handle_request(
         RequestType::SHUTDOWN => {
             debug!(log, "received shutdown request, ignoring");
             Ok(vec![])
+        }
+
+        RequestType::GETAI => {
+            let hostname = CStr::from_bytes_with_nul(request.key)?.to_str()?;
+            let resp = dns_lookup::getaddrinfo(Some(hostname), None, None);
+
+            let ai_resp_empty = AiResponse {
+                canon_name: hostname.to_string(),
+                addrs: vec![],
+            };
+
+            let ai_resp: AiResponse = match resp {
+                Ok(ai_resp_iter) => {
+                    let addrs: HashSet<IpAddr> = ai_resp_iter
+                        .filter_map(|e| e.ok())
+                        .map(|e| e.sockaddr.ip())
+                        .collect();
+                    AiResponse {
+                        canon_name: hostname.to_string(),
+                        addrs: addrs.iter().copied().collect::<Vec<IpAddr>>(),
+                    }
+                }
+                Err(_) => ai_resp_empty,
+            };
+
+            serialize_address_info(&ai_resp)
         }
 
         // GETHOSTBYADDR and GETHOSTBYADDRv6 implement reverse lookup
@@ -259,7 +290,6 @@ pub fn handle_request(
 
         // Not implemented (yet)
         RequestType::GETSTAT
-        | RequestType::GETAI
         | RequestType::GETSERVBYNAME
         | RequestType::GETSERVBYPORT
         | RequestType::GETNETGRENT
@@ -372,6 +402,78 @@ pub struct Host {
     pub addresses: Vec<std::net::IpAddr>,
     // aliases is unused so far
     pub hostname: String,
+}
+
+/// Serialize a [RequestType::GETAI] response to the wire.
+///
+/// This wire format has been implemented by reading the `addhstaiX`
+/// function living in the `nscd/aicache.c` glibc file. We copy the
+/// exact same behaviour, aside from the caching part.
+///
+/// The wire getaddrinfo call result is serialized like this:
+///
+/// 1. version: int32. Hardcoded to 2.
+/// 2. found: int32. 1 if we have a result, 0 if we don't.
+/// 3. naddrs: int32. Number of IPv4/6 adresses we're about to write.
+/// 4. addrslen: int32. Total lenght of the IPv4/6 adresses we're
+///    about to write.
+/// 5. canonlen: int32. Total lenght of the null-terminated canonical
+///    name string.
+/// 6. error: int32. Error code. Always 0 in the current nscd
+///           implementation.
+/// 7. addrs: \[BE-encoded IPv4/IPv6\]. We sequentially write the
+///    IPv4 and IPv6 bytes using a big endian encoding. There's no
+///    padding, an IPv4 will be 4 bytes wide, an IPv6 16 bytes wide.
+/// 8. addr_family: \[uint8\]. This array mirrors the addrs array. Each
+///    addr element will be mirrored in this array, except we'll write
+///    the associated IP addr family number. AF_INET for an IPv4,
+///    AF_INET6 for a v6.
+fn serialize_address_info(resp: &AiResponse) -> Result<Vec<u8>> {
+    let mut b_families: Vec<u8> = Vec::with_capacity(2);
+    let mut b_addrs: Vec<u8> = Vec::with_capacity(2);
+    for addr in &resp.addrs {
+        match addr {
+            IpAddr::V4(ip) => {
+                b_families.push(AddressFamily::Inet as u8);
+                for octet in ip.octets() {
+                    b_addrs.push(octet);
+                }
+            }
+            IpAddr::V6(ip) => {
+                b_families.push(AddressFamily::Inet6 as u8);
+                for segment in ip.segments() {
+                    for byte in u16::to_be_bytes(segment) {
+                        b_addrs.push(byte);
+                    }
+                }
+            }
+        }
+    }
+    let addrslen = b_addrs.len();
+    if addrslen > 0 {
+        let canon_name = resp.canon_name.clone();
+        let b_canon_name = CString::new(canon_name)?.into_bytes_with_nul();
+        let ai_response_header = AiResponseHeader {
+            version: protocol::VERSION,
+            found: 1,
+            naddrs: resp.addrs.len() as i32,
+            addrslen: addrslen as i32,
+            canonlen: b_canon_name.len() as i32,
+            error: protocol::H_ERRNO_NETDB_SUCCESS,
+        };
+
+        let total_len = size_of::<AiResponseHeader>() + b_addrs.len() + b_families.len();
+        let mut buffer = Vec::with_capacity(total_len);
+        buffer.extend_from_slice(ai_response_header.as_slice());
+        buffer.extend_from_slice(&b_addrs);
+        buffer.extend_from_slice(&b_families);
+        buffer.extend_from_slice(&b_canon_name);
+        Ok(buffer)
+    } else {
+        let mut buffer = Vec::with_capacity(size_of::<AiResponseHeader>());
+        buffer.extend_from_slice(protocol::AI_RESPONSE_HEADER_NOT_FOUND.as_slice());
+        Ok(buffer)
+    }
 }
 
 /// Send a gethostby{addr,name}{,v6} entry back to the client,
@@ -543,6 +645,51 @@ mod test {
     }
 
     #[test]
+    fn test_handle_request_getai() {
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETAI,
+            key: &CString::new("localhost".to_string())
+                .unwrap()
+                .into_bytes_with_nul(),
+        };
+
+        // The getaddrinfo call can actually return different ordering, or in the case of a
+        // IPv4-only host, only return an IPv4 response.
+        // Be happy with any of these permutations.
+        let gen_ai_resp = |addrs| protocol::AiResponse {
+            addrs,
+            canon_name: "localhost".to_string(),
+        };
+        let ai_resp_1 = gen_ai_resp(vec![
+            IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        ]);
+        let ai_resp_2 = gen_ai_resp(vec![
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+        ]);
+        let ai_resp_3 = gen_ai_resp(vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))]);
+        let expected_1: Vec<u8> = serialize_address_info(&ai_resp_1)
+            .expect("serialize_address_info should serialize correctly");
+        let expected_2: Vec<u8> = serialize_address_info(&ai_resp_2)
+            .expect("serialize_address_info should serialize correctly");
+        let expected_3: Vec<u8> = serialize_address_info(&ai_resp_3)
+            .expect("serialize_address_info should serialize correctly");
+
+        let output = handle_request(&test_logger(), &Config::default(), &request)
+            .expect("should handle request with no error");
+
+        assert!(
+            expected_1 == output || expected_2 == output || expected_3 == output,
+            "\nExpecting \n{:?}\nTo be equal to\n{:?}\nor\n{:?}\nor\n{:?}\n",
+            output,
+            expected_1,
+            expected_2,
+            expected_3
+        );
+    }
+
+    #[test]
     fn test_handle_gethostbyaddr() {
         let request = protocol::Request {
             ty: protocol::RequestType::GETHOSTBYADDR,
@@ -557,8 +704,8 @@ mod test {
             })),
         );
 
-        let output =
-            handle_request(&test_logger(), &Config::default(),  &request).expect("should handle request with no error");
+        let output = handle_request(&test_logger(), &Config::default(), &request)
+            .expect("should handle request with no error");
 
         assert_eq!(expected, output)
     }
@@ -590,8 +737,8 @@ mod test {
             })),
         );
 
-        let output =
-            handle_request(&test_logger(), &Config::default(), &request).expect("should handle request with no error");
+        let output = handle_request(&test_logger(), &Config::default(), &request)
+            .expect("should handle request with no error");
 
         assert_eq!(expected, output)
     }
