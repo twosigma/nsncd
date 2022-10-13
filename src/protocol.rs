@@ -22,8 +22,8 @@
 //! `handlers::send_{user,group}`. For a full picture of the protocol, you will
 //! need to read both.
 
-use std::convert::TryInto;
 use std::mem::size_of;
+use std::{convert::TryInto, net::IpAddr};
 
 use anyhow::{ensure, Context, Result};
 use num_derive::{FromPrimitive, ToPrimitive};
@@ -35,7 +35,9 @@ use nix::libc::{c_int, gid_t, uid_t};
 /// of each message header.
 pub const VERSION: i32 = 2;
 
-/// Errors used in HstResponseHeader struct
+/// Errors used in {Ai,Hst}ResponseHeader structs.
+/// See NSCD's resolv/netdb.h for the complete list.
+pub const H_ERRNO_NETDB_SUCCESS: i32 = 0;
 pub const H_ERRNO_NETDB_INTERNAL: i32 = -1;
 pub const H_ERRNO_HOST_NOT_FOUND: i32 = 1; // Authoritative Answer Host not found.
 #[allow(dead_code)]
@@ -188,6 +190,55 @@ impl InitgroupsResponseHeader {
     }
 }
 
+/// Structure containing the resulting data of a [RequestType::GETAI]
+/// operation.
+///
+/// Unlike most of the data types declared in this module, this
+/// structure isn't meant to be directly serialized to the wire.
+/// Instead, it contains all the necessary informations to to generate
+/// a [AiResponseHeader] and its associated payload.
+#[derive(Debug, Clone)]
+pub struct AiResponse {
+    pub addrs: Vec<IpAddr>,
+    pub canon_name: String,
+}
+
+/// Response Header derived from the glibc `ai_response_header`
+/// structure.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct AiResponseHeader {
+    pub version: c_int,
+    pub found: c_int,
+    pub naddrs: c_int,
+    pub addrslen: c_int,
+    pub canonlen: c_int,
+    pub error: c_int,
+}
+
+impl AiResponseHeader {
+    /// Serialize the header to bytes
+    ///
+    /// The C implementations of nscd just take the address of the struct, so
+    /// we will too, to make it easy to convince ourselves it's correct.
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
+/// Magic address info header returned to the client when an address
+/// lookup doesn't yield any matches. See glib's `nscd/aicache.c` file
+/// for the original definition.
+pub const AI_RESPONSE_HEADER_NOT_FOUND: AiResponseHeader = AiResponseHeader {
+    version: VERSION,
+    found: 0,
+    naddrs: 0,
+    addrslen: 0,
+    canonlen: 0,
+    error: 0,
+};
+
 /// Structure used to hold the reply header of a
 /// gethostbyaddr[v6]/gethostbyname[v6] request.
 /// Maps to the hst_response_header struct in nscd.
@@ -286,6 +337,29 @@ mod test {
             expected.extend_from_slice(&VERSION.to_ne_bytes());
             expected.extend_from_slice(&1i32.to_ne_bytes());
             expected.extend_from_slice(&10i32.to_ne_bytes());
+        }
+
+        assert_eq!(header.as_slice(), expected);
+    }
+
+    #[test]
+    fn ai_response_header_as_slice() {
+        let header = AiResponseHeader {
+            version: VERSION,
+            found: 1,
+            naddrs: 1,
+            addrslen: 4,
+            canonlen: 10,
+            error: 0,
+        };
+        let mut expected = Vec::with_capacity(4 * 6);
+        {
+            expected.extend_from_slice(&VERSION.to_ne_bytes());
+            expected.extend_from_slice(&1i32.to_ne_bytes());
+            expected.extend_from_slice(&1i32.to_ne_bytes());
+            expected.extend_from_slice(&4i32.to_ne_bytes());
+            expected.extend_from_slice(&10i32.to_ne_bytes());
+            expected.extend_from_slice(&0i32.to_ne_bytes());
         }
 
         assert_eq!(header.as_slice(), expected);
