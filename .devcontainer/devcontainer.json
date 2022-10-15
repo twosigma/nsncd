@@ -34,7 +34,9 @@
 		// VS Code don't watch files under ./target
 		"files.watcherExclude": {
 			"**/target/**": true
-		}
+		},
+		"git.autofetch": true,
+		"git.branchProtection": ["main"]
 	},
 
 	// Add the IDs of extensions you want installed when the container is created.
