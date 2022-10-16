@@ -17,12 +17,15 @@ anyhow = "^1.0"
 atoi = "^0.4"
 slog = "^2.7"
 slog-async = "^2.7"
-slog-term = "^2.8"
+# Hold at 2.8.1: 2.9 upgrades to time 0.3 whose MSRV is too new
+slog-term = "~2.8"
 crossbeam-channel = "^0.5"
-# Hold at 0.21 - 0.22 MSRV is greater than Debian stretch
+# Hold at 0.21: 0.22 MSRV is too new
 nix = "^0.21.2"
 num-derive = "^0.3"
 num-traits = "^0.2"
+# Indirect dependency, constrained for MSRV
+once_cell = "~1.14"
 
 [dev-dependencies]
 criterion = "^0.3"
