@@ -54,6 +54,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use crossbeam_channel as channel;
+use sd_notify::NotifyState;
 use slog::{debug, error, o, Drain};
 
 mod ffi;
@@ -83,7 +84,6 @@ fn main() -> Result<()> {
         "worker_count" => worker_count,
         "handoff_timeout" => ?handoff_timeout,
     );
-
     let mut wg = WorkGroup::new();
     let tx = spawn_workers(&mut wg, &logger, worker_count);
 
@@ -92,6 +92,8 @@ fn main() -> Result<()> {
     let listener = UnixListener::bind(path).context("could not bind to socket")?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
     spawn_acceptor(&mut wg, &logger, listener, tx, handoff_timeout);
+
+    let _ = sd_notify::notify(true, &[NotifyState::Ready]);
 
     let (result, handles) = wg.run();
     if let Err(e) = result {
