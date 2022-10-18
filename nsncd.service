@@ -18,6 +18,7 @@ Description=name-service non-caching daemon
 [Service]
 ExecStart=/usr/lib/nsncd
 Restart=always
+Type=notify
 
 [Install]
 WantedBy=multi-user.target
