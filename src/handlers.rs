@@ -568,17 +568,7 @@ fn serialize_host(log: &slog::Logger, host: Result<Option<Host>>) -> Vec<u8> {
     let result = match host {
         Ok(Some(host)) => host.serialize(),
         Ok(None) => {
-            let header = protocol::HstResponseHeader {
-                version: protocol::VERSION,
-                found: 0,
-                h_name_len: 0,
-                h_aliases_cnt: 0,
-                h_addrtype: -1 as i32,
-                h_length: -1 as i32,
-                h_addr_list_cnt: 0,
-                error: protocol::H_ERRNO_HOST_NOT_FOUND as i32,
-            };
-
+            let header = protocol::HstResponseHeader::ERRNO_HOST_NOT_FOUND;
             Ok(header.as_slice().to_vec())
         }
         Err(e) => {
@@ -591,17 +581,7 @@ fn serialize_host(log: &slog::Logger, host: Result<Option<Host>>) -> Vec<u8> {
         Ok(res) => res,
         Err(e) => {
             error!(log, "parsing request"; "err" => %e);
-            let header = protocol::HstResponseHeader {
-                version: protocol::VERSION,
-                found: 0,
-                h_name_len: 0,
-                h_aliases_cnt: 0,
-                h_addrtype: -1 as i32,
-                h_length: -1 as i32,
-                h_addr_list_cnt: protocol::H_ERRNO_NETDB_INTERNAL as i32,
-                error: 0,
-            };
-
+            let header = protocol::HstResponseHeader::ERRNO_NETDB_INTERNAL;
             header.as_slice().to_vec()
         }
     }
