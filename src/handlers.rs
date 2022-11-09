@@ -434,23 +434,40 @@ impl Host {
         }
 
         let num_addrs = num_v4 + num_v6;
+        let has_addrs = num_addrs > 0;
 
         let hostname_c_string_bytes = CString::new(self.hostname.clone())?.into_bytes_with_nul();
-        let hostname_c_string_len = hostname_c_string_bytes.len();
+        let hostname_c_string_len = if has_addrs {
+            hostname_c_string_bytes.len() as i32
+        } else {
+            0
+        };
 
         let header = protocol::HstResponseHeader {
             version: protocol::VERSION,
-            found: 1 as i32,
-            h_name_len: hostname_c_string_len as i32,
-            h_aliases_cnt: 0 as i32,
-            h_addrtype: if num_v4 != 0 {
+            found: if has_addrs { 1 } else { 0 },
+            h_name_len: hostname_c_string_len,
+            h_aliases_cnt: 0,
+            h_addrtype: if !has_addrs {
+                -1
+            } else if num_v4 != 0 {
                 nix::sys::socket::AddressFamily::Inet as i32
             } else {
                 nix::sys::socket::AddressFamily::Inet6 as i32
             },
-            h_length: if num_v4 != 0 { 4 as i32 } else { 16 as i32 },
+            h_length: if !has_addrs {
+                -1
+            } else if num_v4 != 0 {
+                4
+            } else {
+                16
+            },
             h_addr_list_cnt: num_addrs as i32,
-            error: 0,
+            error: if has_addrs {
+                0
+            } else {
+                protocol::H_ERRNO_HOST_NOT_FOUND
+            },
         };
 
         let total_len = 4 * 8 + hostname_c_string_len as i32 + buf_addrs.len() as i32;
@@ -460,14 +477,16 @@ impl Host {
         buf.extend_from_slice(header.as_slice());
 
         // add hostname
-        buf.extend_from_slice(&hostname_c_string_bytes);
+        if has_addrs {
+            buf.extend_from_slice(&hostname_c_string_bytes);
 
-        // add serialized addresses from buf_addrs
-        buf.extend_from_slice(buf_addrs.as_slice());
+            // add serialized addresses from buf_addrs
+            buf.extend_from_slice(buf_addrs.as_slice());
+        }
 
         debug_assert_eq!(buf.len() as i32, total_len);
 
-	Ok(buf)
+        Ok(buf)
     }
 }
 
