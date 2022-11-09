@@ -478,7 +478,7 @@ fn serialize_address_info(resp: &AiResponse) -> Result<Vec<u8>> {
 /// Send a gethostby{addr,name}{,v6} entry back to the client,
 /// or a response indicating the lookup failed.
 fn serialize_host(log: &slog::Logger, host: Result<Option<Host>>) -> Vec<u8> {
-    let result = || {
+    let result = {
         match host {
             Ok(Some(host)) => {
                 // Loop over all addresses.
@@ -570,7 +570,7 @@ fn serialize_host(log: &slog::Logger, host: Result<Option<Host>>) -> Vec<u8> {
         }
     };
 
-    match result() {
+    match result {
         Ok(res) => res,
         Err(e) => {
             error!(log, "parsing request"; "err" => %e);
