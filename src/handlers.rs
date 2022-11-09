@@ -560,9 +560,7 @@ fn serialize_host(log: &slog::Logger, host: Result<Option<Host>>) -> Vec<u8> {
                 error: protocol::H_ERRNO_HOST_NOT_FOUND as i32,
             };
 
-            let mut buf = Vec::with_capacity(4 * 8);
-            buf.extend_from_slice(header.as_slice());
-            Ok(buf)
+            Ok(header.as_slice().to_vec())
         }
         Err(e) => {
             // pass along error
@@ -585,9 +583,7 @@ fn serialize_host(log: &slog::Logger, host: Result<Option<Host>>) -> Vec<u8> {
                 error: 0,
             };
 
-            let mut buf = Vec::with_capacity(4 * 8);
-            buf.extend_from_slice(header.as_slice());
-            buf
+            header.as_slice().to_vec()
         }
     }
 }
