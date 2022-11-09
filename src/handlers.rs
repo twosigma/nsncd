@@ -565,26 +565,20 @@ fn serialize_address_info(resp: &AiResponse) -> Result<Vec<u8>> {
 /// Send a gethostby{addr,name}{,v6} entry back to the client,
 /// or a response indicating the lookup failed.
 fn serialize_host(log: &slog::Logger, host: Result<Option<Host>>) -> Vec<u8> {
-    let result = match host {
-        Ok(Some(host)) => host.serialize(),
-        Ok(None) => {
-            let header = protocol::HstResponseHeader::ERRNO_HOST_NOT_FOUND;
-            Ok(header.as_slice().to_vec())
-        }
-        Err(e) => {
-            // pass along error
-            Err(e)
-        }
-    };
-
-    match result {
-        Ok(res) => res,
-        Err(e) => {
-            error!(log, "parsing request"; "err" => %e);
-            let header = protocol::HstResponseHeader::ERRNO_NETDB_INTERNAL;
-            header.as_slice().to_vec()
-        }
-    }
+    // if we didn't get an error take the inner value (Option<Host>) and then,
+    host.and_then(|maybe_host| {
+        // if it is Some(host) then serialize, else return the error.
+        maybe_host
+            .map(|h| h.serialize())
+            // if the "host" is None then return a default error response.
+            .unwrap_or_else(|| Ok(protocol::HstResponseHeader::ERRNO_HOST_NOT_FOUND.to_vec()))
+    })
+    // if after all of the above we still have to deal with an error,
+    // return the error response.
+    .unwrap_or_else(|e| {
+        error!(log, "parsing request"; "err" => %e);
+        protocol::HstResponseHeader::ERRNO_NETDB_INTERNAL.to_vec()
+    })
 }
 
 #[cfg(test)]
