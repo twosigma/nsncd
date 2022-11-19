@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 Two Sigma Open Source, LLC
+ * Copyright 2020-2022 Two Sigma Open Source, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,7 +44,6 @@
 // - test errors in underlying calls
 // - daemon/pidfile stuff
 
-use std::env;
 use std::io::prelude::*;
 use std::io::ErrorKind;
 use std::os::unix::fs::PermissionsExt;
@@ -53,15 +52,18 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use crossbeam_channel as channel;
 use sd_notify::NotifyState;
 use slog::{debug, error, o, Drain};
 
+mod config;
 mod ffi;
 mod handlers;
 mod protocol;
 mod work_group;
 
+use config::Config;
 use work_group::WorkGroup;
 
 const SOCKET_PATH: &str = "/var/run/nscd/socket";
@@ -75,23 +77,21 @@ fn main() -> Result<()> {
 
     let logger = slog::Logger::root(drain, slog::o!());
 
-    let worker_count = env_usize("NSNCD_WORKER_COUNT", 8);
-    let handoff_timeout = Duration::from_secs(env_usize("NSNCD_HANDOFF_TIMEOUT", 3) as u64);
+    let config = Config::parse();
     let path = Path::new(SOCKET_PATH);
 
     slog::info!(logger, "started";
         "path" => ?path,
-        "worker_count" => worker_count,
-        "handoff_timeout" => ?handoff_timeout,
+        "config" => ?config,
     );
     let mut wg = WorkGroup::new();
-    let tx = spawn_workers(&mut wg, &logger, worker_count);
+    let tx = spawn_workers(&mut wg, &logger, config);
 
     std::fs::create_dir_all(path.parent().expect("socket path has no parent"))?;
     std::fs::remove_file(path).ok();
     let listener = UnixListener::bind(path).context("could not bind to socket")?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
-    spawn_acceptor(&mut wg, &logger, listener, tx, handoff_timeout);
+    spawn_acceptor(&mut wg, &logger, listener, tx, config.handoff_timeout);
 
     let _ = sd_notify::notify(true, &[NotifyState::Ready]);
 
@@ -109,14 +109,6 @@ fn main() -> Result<()> {
             let _ = handle.join();
         }
         Ok(())
-    }
-}
-
-fn env_usize(var: &'static str, default: usize) -> usize {
-    if let Some(value) = env::var(var).ok().and_then(|v| v.parse().ok()) {
-        value
-    } else {
-        default
     }
 }
 
@@ -172,11 +164,11 @@ fn spawn_acceptor(
 fn spawn_workers(
     wg: &mut WorkGroup,
     log: &slog::Logger,
-    n_workers: usize,
+    config: Config,
 ) -> channel::Sender<UnixStream> {
     let (tx, rx) = channel::bounded(0);
 
-    for worker_id in 0..n_workers {
+    for worker_id in 0..config.worker_count {
         let rx = rx.clone();
         let log = log.new(o!("thread" => format!("worker_{}", worker_id)));
 
@@ -184,7 +176,7 @@ fn spawn_workers(
         // the wg is shutdown and it's time to exit.
         wg.add(move |_ctx| {
             while let Ok(stream) = rx.recv() {
-                handle_stream(&log, stream);
+                handle_stream(&log, &config, stream);
             }
         });
     }
@@ -192,7 +184,7 @@ fn spawn_workers(
     tx
 }
 
-fn handle_stream(log: &slog::Logger, mut stream: UnixStream) {
+fn handle_stream(log: &slog::Logger, config: &Config, mut stream: UnixStream) {
     debug!(log, "accepted connection"; "stream" => ?stream);
     let mut buf = [0; 4096];
     let size_read = match stream.read(&mut buf) {
@@ -211,7 +203,7 @@ fn handle_stream(log: &slog::Logger, mut stream: UnixStream) {
     };
     let type_str = format!("{:?}", request.ty);
     let log = log.new(o!("request_type" => type_str));
-    let response = match handlers::handle_request(&log, &request) {
+    let response = match handlers::handle_request(&log, config, &request) {
         Ok(x) => x,
         Err(e) => {
             error!(log, "error handling request"; "err" => %e);

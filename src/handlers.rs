@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 Two Sigma Open Source, LLC
+ * Copyright 2020-2022 Two Sigma Open Source, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ use atoi::atoi;
 use nix::unistd::{getgrouplist, Gid, Group, Uid, User};
 use slog::{debug, error, Logger};
 
+use super::config::RequestTypeIgnorer;
 use super::protocol;
 use super::protocol::RequestType;
 
@@ -32,8 +33,17 @@ use super::protocol::RequestType;
 /// # Arguments
 ///
 /// * `log` - A `slog` Logger.
+/// * `config` - The nsncd configuration (which request types to ignore).
 /// * `request` - The request to handle.
-pub fn handle_request(log: &Logger, request: &protocol::Request) -> Result<Vec<u8>> {
+pub fn handle_request(
+    log: &Logger,
+    config: &dyn RequestTypeIgnorer,
+    request: &protocol::Request,
+) -> Result<Vec<u8>> {
+    if config.should_ignore(&request.ty) {
+        debug!(log, "ignoring request"; "request" => ?request);
+        return Ok(vec![]);
+    }
     debug!(log, "handling request"; "request" => ?request);
     match request.ty {
         RequestType::GETPWBYUID => {
@@ -234,6 +244,7 @@ fn serialize_initgroups(groups: Vec<Gid>) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod test {
+    use super::super::config::Config;
     use super::*;
 
     fn test_logger() -> slog::Logger {
@@ -247,7 +258,7 @@ mod test {
             key: &[],
         };
 
-        let result = handle_request(&test_logger(), &request);
+        let result = handle_request(&test_logger(), &Config::default(), &request);
         assert!(result.is_err(), "should error on empty input");
     }
 
@@ -258,7 +269,7 @@ mod test {
             key: &[0x7F, 0x0, 0x0, 0x01],
         };
 
-        let result = handle_request(&test_logger(), &request);
+        let result = handle_request(&test_logger(), &Config::default(), &request);
         assert!(result.is_err(), "should error on garbage input");
     }
 
@@ -275,8 +286,8 @@ mod test {
 
         let expected = serialize_user(Some(current_user))
             .expect("send_user should serialize current user data");
-        let output =
-            handle_request(&test_logger(), &request).expect("should handle request with no error");
+        let output = handle_request(&test_logger(), &Config::default(), &request)
+            .expect("should handle request with no error");
         assert_eq!(expected, output);
     }
 }
