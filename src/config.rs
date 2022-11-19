@@ -18,8 +18,6 @@
 
 use std::time::Duration;
 
-use clap::builder::BoolishValueParser;
-
 use super::protocol::RequestType;
 
 pub trait RequestTypeIgnorer {
@@ -30,51 +28,51 @@ pub trait RequestTypeIgnorer {
 pub struct Config {
     #[clap(long, env("NSNCD_WORKER_COUNT"), default_value_t = 8)]
     pub worker_count: usize,
-    #[clap(long, env("NSNCD_HANDOFF_TIMEOUT"), default_value = "3", value_parser = parse_duration)]
+    #[clap(long, env("NSNCD_HANDOFF_TIMEOUT"), default_value = "3", parse(try_from_str = parse_duration))]
     pub handoff_timeout: Duration,
-    #[clap(long, env("NSNCD_IGNORE_GETPWBYNAME"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETPWBYNAME"))]
     ignore_getpwbyname: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETPWBYUID"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETPWBYUID"))]
     ignore_getpwbyuid: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETGRBYNAME"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETGRBYNAME"))]
     ignore_getgrbyname: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETGRBYGID"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETGRBYGID"))]
     ignore_getgrbygid: bool,
-    #[clap(long, env("NSNCD_IGNORE_INITGROUPS"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_INITGROUPS"))]
     ignore_initgroups: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETHOSTBYADDR"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETHOSTBYADDR"))]
     ignore_gethostbyaddr: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETHOSTBYADDRV6"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETHOSTBYADDRV6"))]
     ignore_gethostbyaddrv6: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETHOSTBYNAME"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETHOSTBYNAME"))]
     ignore_gethostbyname: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETHOSTBYNAMEV6"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETHOSTBYNAMEV6"))]
     ignore_gethostbynamev6: bool,
-    #[clap(long, env("NSNCD_IGNORE_SHUTDOWN"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_SHUTDOWN"))]
     ignore_shutdown: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETSTAT"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETSTAT"))]
     ignore_getstat: bool,
-    #[clap(long, env("NSNCD_IGNORE_INVALIDATE"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_INVALIDATE"))]
     ignore_invalidate: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETFDPW"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETFDPW"))]
     ignore_getfdpw: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETFDGR"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETFDGR"))]
     ignore_getfdgr: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETFDHST"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETFDHST"))]
     ignore_getfdhst: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETAI"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETAI"))]
     ignore_getai: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETSERVBYNAME"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETSERVBYNAME"))]
     ignore_getservbyname: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETSERVBYPORT"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETSERVBYPORT"))]
     ignore_getservbyport: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETFDSERV"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETFDSERV"))]
     ignore_getfdserv: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETFDNETGR"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETFDNETGR"))]
     ignore_getfdnetgr: bool,
-    #[clap(long, env("NSNCD_IGNORE_GETNETGRENT"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_GETNETGRENT"))]
     ignore_getnetgrent: bool,
-    #[clap(long, env("NSNCD_IGNORE_INNETGR"), value_parser = BoolishValueParser::new())]
+    #[clap(long, env("NSNCD_IGNORE_INNETGR"))]
     ignore_innetgr: bool,
 }
 
