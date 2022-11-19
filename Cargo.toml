@@ -28,7 +28,7 @@ num-traits = "^0.2"
 sd-notify = "~0.3"
 # Indirect dependency, constrained for MSRV
 once_cell = "~1.14"
-clap = { version = "^4.0.26", features = ["derive", "env"] }
+clap = { version = "^3.2", features = ["derive", "env"] }
 
 [dev-dependencies]
 criterion = "^0.3"
