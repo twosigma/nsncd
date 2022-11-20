@@ -63,6 +63,31 @@ const OPS_BY_DATABASE: &[(&str, &[RequestType])] = &[
 ];
 
 impl Config {
+    /// Parse config out of the environment.
+    ///
+    /// There are two integer variables we pay attention to:
+    /// `NSNCD_WORKER_COUNT` and `NSNCD_HANDOFF_TIMEOUT`. Both must be positive
+    /// (non-zero).
+    ///
+    /// We also pay attention to variables `NSNCD_IGNORE_<DATABASE>` where
+    /// `<DATABASE>` is one of the database names from `nsswitch.conf(5)`,
+    /// capitalized:
+    ///
+    /// - NSNCD_IGNORE_GROUP
+    /// - NSNCD_IGNORE_HOSTS
+    /// - NSNCD_IGNORE_INITGROUPS
+    /// - NSNCD_IGNORE_NETGROUP
+    /// - NSNCD_IGNORE_PASSWD
+    /// - NSNCD_IGNORE_SERVICES
+    ///
+    /// These variables must be either `true` or `false`. The default is
+    /// `false` (don't ignore any requests). If one of these variables is set
+    /// to true, `nsncd` will not respond to the requests related to that
+    /// database.
+    ///
+    /// Some request types may be ignored by the implementation (e.g. the ones
+    /// that request a file descriptor pointing into internal cache
+    /// structures).
     pub fn from_env() -> Result<Self> {
         let ops_map = {
             let mut ops_map = BTreeMap::new();
@@ -75,9 +100,13 @@ impl Config {
         let mut ignored_request_types = [false; 32];
 
         for (key, value) in env::vars() {
-            let op_group = match key.strip_prefix("NSNCD_IGNORE_") {
-                Some(name) => name,
-                None => continue,
+            let op_group = {
+                // TODO: use str.strip_prefix() after upgrading rustc
+                let prefix = "NSNCD_IGNORE_";
+                if !key.starts_with(prefix) {
+                    continue;
+                }
+                &key[prefix.len()..]
             };
             let types = ops_map.get(op_group).ok_or_else(|| {
                 let groups = ops_map.keys().cloned().collect::<Vec<_>>().join(", ");
