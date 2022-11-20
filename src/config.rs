@@ -23,7 +23,7 @@ use anyhow::{Context, Result};
 
 use super::protocol::RequestType;
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Config {
     pub worker_count: usize,
     pub handoff_timeout: Duration,
@@ -54,8 +54,10 @@ pub struct Config {
 impl Config {
     pub fn from_env() -> Result<Self> {
         Ok(Self {
-            worker_count: env_usize("NSNCD_WORKER_COUNT", 8)?,
-            handoff_timeout: Duration::from_secs(env_usize("NSNCD_HANDOFF_TIMEOUT", 3)? as u64),
+            worker_count: env_positive_usize("NSNCD_WORKER_COUNT", 8)?,
+            handoff_timeout: Duration::from_secs(
+                env_positive_usize("NSNCD_HANDOFF_TIMEOUT", 3)? as u64
+            ),
             ignore_getpwbyname: env_bool("NSNCD_IGNORE_GETPWBYNAME")?,
             ignore_getpwbyuid: env_bool("NSNCD_IGNORE_GETPWBYUID")?,
             ignore_getgrbyname: env_bool("NSNCD_IGNORE_GETGRBYNAME")?,
@@ -111,10 +113,47 @@ impl Config {
     }
 }
 
-fn env_usize(var: &'static str, default: usize) -> Result<usize> {
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            worker_count: 8,
+            handoff_timeout: Duration::from_secs(3),
+            ignore_getpwbyname: Default::default(),
+            ignore_getpwbyuid: Default::default(),
+            ignore_getgrbyname: Default::default(),
+            ignore_getgrbygid: Default::default(),
+            ignore_initgroups: Default::default(),
+            ignore_gethostbyaddr: Default::default(),
+            ignore_gethostbyaddrv6: Default::default(),
+            ignore_gethostbyname: Default::default(),
+            ignore_gethostbynamev6: Default::default(),
+            ignore_shutdown: Default::default(),
+            ignore_getstat: Default::default(),
+            ignore_invalidate: Default::default(),
+            ignore_getfdpw: Default::default(),
+            ignore_getfdgr: Default::default(),
+            ignore_getfdhst: Default::default(),
+            ignore_getai: Default::default(),
+            ignore_getservbyname: Default::default(),
+            ignore_getservbyport: Default::default(),
+            ignore_getfdserv: Default::default(),
+            ignore_getfdnetgr: Default::default(),
+            ignore_getnetgrent: Default::default(),
+            ignore_innetgr: Default::default(),
+        }
+    }
+}
+
+fn env_positive_usize(var: &'static str, default: usize) -> Result<usize> {
     if let Ok(v) = env::var(var) {
-        Ok(v.parse()
-            .with_context(|| format!("parsing int from {}", v))?)
+        let val = v
+            .parse()
+            .with_context(|| format!("parsing int from {}", v))?;
+        if val > 0 {
+            Ok(val)
+        } else {
+            Err(anyhow::format_err!("variable {} cannot be 0", var))
+        }
     } else {
         Ok(default)
     }
@@ -126,5 +165,171 @@ fn env_bool(var: &'static str) -> Result<bool> {
             .with_context(|| format!("parsing bool from {}", v))?)
     } else {
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::time::Duration;
+
+    use temp_env::{with_var, with_var_unset, with_vars};
+
+    use super::Config;
+
+    #[test]
+    fn test_defaults() {
+        let config = Config::default();
+        assert_eq!(config.worker_count, 8);
+        assert_eq!(config.handoff_timeout, Duration::from_secs(3));
+        assert!(!config.ignore_getpwbyname);
+        assert!(!config.ignore_getpwbyuid);
+    }
+
+    #[test]
+    fn test_worker_count() {
+        with_var_unset("NSNCD_WORKER_COUNT", || {
+            let config = Config::from_env().unwrap();
+            assert_eq!(config.worker_count, Config::default().worker_count);
+        });
+        with_var("NSNCD_WORKER_COUNT", Some("13"), || {
+            let config = Config::from_env().unwrap();
+            assert_eq!(config.worker_count, 13);
+        });
+        with_var("NSNCD_WORKER_COUNT", Some("0"), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_var("NSNCD_WORKER_COUNT", Some("-1"), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_var("NSNCD_WORKER_COUNT", Some("ten"), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_var(
+            "NSNCD_WORKER_COUNT",
+            Some("1000000000000000000000000"),
+            || {
+                assert!(Config::from_env().is_err());
+            },
+        );
+        with_var("NSNCD_WORKER_COUNT", Some(""), || {
+            assert!(Config::from_env().is_err());
+        });
+    }
+
+    #[test]
+    fn test_handoff_timeout() {
+        with_var_unset("NSNCD_HANDOFF_TIMEOUT", || {
+            let config = Config::from_env().unwrap();
+            assert_eq!(config.handoff_timeout, Config::default().handoff_timeout);
+        });
+        with_var("NSNCD_HANDOFF_TIMEOUT", Some("13"), || {
+            let config = Config::from_env().unwrap();
+            assert_eq!(config.handoff_timeout, Duration::from_secs(13));
+        });
+        with_var("NSNCD_HANDOFF_TIMEOUT", Some("13s"), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_var("NSNCD_HANDOFF_TIMEOUT", Some("0"), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_var("NSNCD_HANDOFF_TIMEOUT", Some("-1"), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_var("NSNCD_HANDOFF_TIMEOUT", Some("ten"), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_var(
+            "NSNCD_HANDOFF_TIMEOUT",
+            Some("1000000000000000000000000"),
+            || {
+                assert!(Config::from_env().is_err());
+            },
+        );
+        with_var("NSNCD_HANDOFF_TIMEOUT", Some(""), || {
+            assert!(Config::from_env().is_err());
+        });
+    }
+
+    #[test]
+    fn test_ignore_vars() {
+        with_var_unset("NSNCD_IGNORE_INITGROUPS", || {
+            let config = Config::from_env().unwrap();
+            assert!(!config.ignore_getpwbyname);
+            assert!(!config.ignore_initgroups);
+        });
+        with_var("NSNCD_IGNORE_INITGROUPS", Some("true"), || {
+            let config = Config::from_env().unwrap();
+            assert!(!config.ignore_getpwbyname);
+            assert!(config.ignore_initgroups);
+        });
+        with_var("NSNCD_IGNORE_INITGROUPS", Some("false"), || {
+            let config = Config::from_env().unwrap();
+            assert!(!config.ignore_getpwbyname);
+            assert!(!config.ignore_initgroups);
+        });
+        with_var("NSNCD_IGNORE_INITGROUPS", Some("yes"), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_var("NSNCD_IGNORE_INITGROUPS", Some("y"), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_var("NSNCD_IGNORE_INITGROUPS", Some("no"), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_var("NSNCD_IGNORE_INITGROUPS", Some("n"), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_var("NSNCD_IGNORE_INITGROUPS", Some("1"), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_var("NSNCD_IGNORE_INITGROUPS", Some("0"), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_var("NSNCD_IGNORE_INITGROUPS", Some(""), || {
+            assert!(Config::from_env().is_err());
+        });
+        with_vars(
+            vec![
+                ("NSNCD_IGNORE_GETPWBYNAME", Some("false")),
+                ("NSNCD_IGNORE_INITGROUPS", Some("true")),
+            ],
+            || {
+                let config = Config::from_env().unwrap();
+                assert!(!config.ignore_getpwbyname);
+                assert!(config.ignore_initgroups);
+            },
+        );
+        with_vars(
+            vec![
+                ("NSNCD_IGNORE_GETPWBYNAME", Some("true")),
+                ("NSNCD_IGNORE_INITGROUPS", Some("false")),
+            ],
+            || {
+                let config = Config::from_env().unwrap();
+                assert!(config.ignore_getpwbyname);
+                assert!(!config.ignore_initgroups);
+            },
+        );
+        with_vars(
+            vec![
+                ("NSNCD_IGNORE_GETPWBYNAME", Some("true")),
+                ("NSNCD_IGNORE_INITGROUPS", Some("true")),
+            ],
+            || {
+                let config = Config::from_env().unwrap();
+                assert!(config.ignore_getpwbyname);
+                assert!(!config.ignore_getpwbyuid);
+                assert!(config.ignore_initgroups);
+            },
+        );
+        with_vars(
+            vec![
+                ("NSNCD_IGNORE_GETPWBYNAME", Some("1")),
+                ("NSNCD_IGNORE_INITGROUPS", Some("true")),
+            ],
+            || {
+                assert!(Config::from_env().is_err());
+            },
+        );
     }
 }
