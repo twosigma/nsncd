@@ -62,7 +62,7 @@ mod handlers;
 mod protocol;
 mod work_group;
 
-use config::{Config, Parser};
+use config::Config;
 use work_group::WorkGroup;
 
 const SOCKET_PATH: &str = "/var/run/nscd/socket";
@@ -76,7 +76,7 @@ fn main() -> Result<()> {
 
     let logger = slog::Logger::root(drain, slog::o!());
 
-    let config = Config::parse()?;
+    let config = Config::from_env()?;
     let path = Path::new(SOCKET_PATH);
 
     slog::info!(logger, "started";

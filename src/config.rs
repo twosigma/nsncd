@@ -16,21 +16,12 @@
 
 //! Command line flags (to control which requests we respond to).
 
+use std::env;
 use std::time::Duration;
 
-use clap::{App, Arg};
+use anyhow::{Context, Result};
 
 use super::protocol::RequestType;
-
-pub trait RequestTypeIgnorer {
-    fn should_ignore(&self, ty: &RequestType) -> bool;
-}
-
-pub trait Parser {
-    fn parse() -> Result<Self, std::num::ParseIntError>
-    where
-        Self: std::marker::Sized;
-}
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Config {
@@ -60,80 +51,37 @@ pub struct Config {
     ignore_innetgr: bool,
 }
 
-impl Parser for Config {
-    fn parse() -> Result<Self, std::num::ParseIntError> {
-        let m = App::new("nsncd")
-            .args(&[
-                Arg::with_name("worker_count")
-                    .long("worker-count")
-                    .env("NSNCD_WORKER_COUNT")
-                    .default_value("8"),
-                Arg::with_name("handoff_timeout")
-                    .long("handoff-timeout")
-                    .env("NSNCD_HANDOFF_TIMEOUT")
-                    .default_value("3"),
-                Arg::with_name("ignore_getpwbyname").long("ignore-getpwbyname"),
-                Arg::with_name("ignore_getpwbyuid").long("ignore-getpwbyuid"),
-                Arg::with_name("ignore_getgrbyname").long("ignore-getgrbyname"),
-                Arg::with_name("ignore_getgrbygid").long("ignore-getgrbygid"),
-                Arg::with_name("ignore_initgroups").long("ignore-initgroups"),
-                Arg::with_name("ignore_gethostbyaddr").long("ignore-gethostbyaddr"),
-                Arg::with_name("ignore_gethostbyaddrv6").long("ignore-gethostbyaddrv6"),
-                Arg::with_name("ignore_gethostbyname").long("ignore-gethostbyname"),
-                Arg::with_name("ignore_gethostbynamev6").long("ignore-gethostbynamev6"),
-                Arg::with_name("ignore_shutdown").long("ignore-shutdown"),
-                Arg::with_name("ignore_getstat").long("ignore-getstat"),
-                Arg::with_name("ignore_invalidate").long("ignore-invalidate"),
-                Arg::with_name("ignore_getfdpw").long("ignore-getfdpw"),
-                Arg::with_name("ignore_getfdgr").long("ignore-getfdgr"),
-                Arg::with_name("ignore_getfdhst").long("ignore-getfdhst"),
-                Arg::with_name("ignore_getai").long("ignore-getai"),
-                Arg::with_name("ignore_getservbyname").long("ignore-getservbyname"),
-                Arg::with_name("ignore_getservbyport").long("ignore-getservbyport"),
-                Arg::with_name("ignore_getfdserv").long("ignore-getfdserv"),
-                Arg::with_name("ignore_getfdnetgr").long("ignore-getfdnetgr"),
-                Arg::with_name("ignore_getnetgrent").long("ignore-getnetgrent"),
-                Arg::with_name("ignore_innetgr").long("ignore-innetgr"),
-            ])
-            .get_matches();
-        let worker_count = m.value_of("worker_count").unwrap().parse()?;
-        let handoff_timeout = parse_duration(m.value_of("handoff_timeout").unwrap())?;
+impl Config {
+    pub fn from_env() -> Result<Self> {
         Ok(Self {
-            worker_count,
-            handoff_timeout,
-            ignore_getpwbyname: m.is_present("ignore_getpwbyname"),
-            ignore_getpwbyuid: m.is_present("ignore_getpwbyuid"),
-            ignore_getgrbyname: m.is_present("ignore_getgrbyname"),
-            ignore_getgrbygid: m.is_present("ignore_getgrbygid"),
-            ignore_initgroups: m.is_present("ignore_initgroups"),
-            ignore_gethostbyaddr: m.is_present("ignore_gethostbyaddr"),
-            ignore_gethostbyaddrv6: m.is_present("ignore_gethostbyaddrv6"),
-            ignore_gethostbyname: m.is_present("ignore_gethostbyname"),
-            ignore_gethostbynamev6: m.is_present("ignore_gethostbynamev6"),
-            ignore_shutdown: m.is_present("ignore_shutdown"),
-            ignore_getstat: m.is_present("ignore_getstat"),
-            ignore_invalidate: m.is_present("ignore_invalidate"),
-            ignore_getfdpw: m.is_present("ignore_getfdpw"),
-            ignore_getfdgr: m.is_present("ignore_getfdgr"),
-            ignore_getfdhst: m.is_present("ignore_getfdhst"),
-            ignore_getai: m.is_present("ignore_getai"),
-            ignore_getservbyname: m.is_present("ignore_getservbyname"),
-            ignore_getservbyport: m.is_present("ignore_getservbyport"),
-            ignore_getfdserv: m.is_present("ignore_getfdserv"),
-            ignore_getfdnetgr: m.is_present("ignore_getfdnetgr"),
-            ignore_getnetgrent: m.is_present("ignore_getnetgrent"),
-            ignore_innetgr: m.is_present("ignore_innetgr"),
+            worker_count: env_usize("NSNCD_WORKER_COUNT", 8)?,
+            handoff_timeout: Duration::from_secs(env_usize("NSNCD_HANDOFF_TIMEOUT", 3)? as u64),
+            ignore_getpwbyname: env_bool("NSNCD_IGNORE_GETPWBYNAME")?,
+            ignore_getpwbyuid: env_bool("NSNCD_IGNORE_GETPWBYUID")?,
+            ignore_getgrbyname: env_bool("NSNCD_IGNORE_GETGRBYNAME")?,
+            ignore_getgrbygid: env_bool("NSNCD_IGNORE_GETGRBYGID")?,
+            ignore_initgroups: env_bool("NSNCD_IGNORE_INITGROUPS")?,
+            ignore_gethostbyaddr: env_bool("NSNCD_IGNORE_GETHOSTBYADDR")?,
+            ignore_gethostbyaddrv6: env_bool("NSNCD_IGNORE_GETHOSTBYADDRV6")?,
+            ignore_gethostbyname: env_bool("NSNCD_IGNORE_GETHOSTBYNAME")?,
+            ignore_gethostbynamev6: env_bool("NSNCD_IGNORE_GETHOSTBYNAMEV6")?,
+            ignore_shutdown: env_bool("NSNCD_IGNORE_SHUTDOWN")?,
+            ignore_getstat: env_bool("NSNCD_IGNORE_GETSTAT")?,
+            ignore_invalidate: env_bool("NSNCD_IGNORE_INVALIDATE")?,
+            ignore_getfdpw: env_bool("NSNCD_IGNORE_GETFDPW")?,
+            ignore_getfdgr: env_bool("NSNCD_IGNORE_GETFDGR")?,
+            ignore_getfdhst: env_bool("NSNCD_IGNORE_GETFDHST")?,
+            ignore_getai: env_bool("NSNCD_IGNORE_GETAI")?,
+            ignore_getservbyname: env_bool("NSNCD_IGNORE_GETSERVBYNAME")?,
+            ignore_getservbyport: env_bool("NSNCD_IGNORE_GETSERVBYPORT")?,
+            ignore_getfdserv: env_bool("NSNCD_IGNORE_GETFDSERV")?,
+            ignore_getfdnetgr: env_bool("NSNCD_IGNORE_GETFDNETGR")?,
+            ignore_getnetgrent: env_bool("NSNCD_IGNORE_GETNETGRENT")?,
+            ignore_innetgr: env_bool("NSNCD_IGNORE_INNETGR")?,
         })
     }
-}
 
-fn parse_duration(arg: &str) -> Result<std::time::Duration, std::num::ParseIntError> {
-    let seconds = arg.parse()?;
-    Ok(std::time::Duration::from_secs(seconds))
-}
-
-impl RequestTypeIgnorer for Config {
-    fn should_ignore(&self, ty: &RequestType) -> bool {
+    pub fn should_ignore(&self, ty: &RequestType) -> bool {
         match ty {
             RequestType::GETPWBYNAME => self.ignore_getpwbyname,
             RequestType::GETPWBYUID => self.ignore_getpwbyuid,
@@ -160,5 +108,23 @@ impl RequestTypeIgnorer for Config {
             // This can't happen
             RequestType::LASTREQ => false,
         }
+    }
+}
+
+fn env_usize(var: &'static str, default: usize) -> Result<usize> {
+    if let Ok(v) = env::var(var) {
+        Ok(v.parse()
+            .with_context(|| format!("parsing int from {}", v))?)
+    } else {
+        Ok(default)
+    }
+}
+
+fn env_bool(var: &'static str) -> Result<bool> {
+    if let Ok(v) = env::var(var) {
+        Ok(v.parse()
+            .with_context(|| format!("parsing bool from {}", v))?)
+    } else {
+        Ok(false)
     }
 }

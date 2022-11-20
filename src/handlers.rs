@@ -23,7 +23,7 @@ use atoi::atoi;
 use nix::unistd::{getgrouplist, Gid, Group, Uid, User};
 use slog::{debug, error, Logger};
 
-use super::config::RequestTypeIgnorer;
+use super::config::Config;
 use super::protocol;
 use super::protocol::RequestType;
 
@@ -37,7 +37,7 @@ use super::protocol::RequestType;
 /// * `request` - The request to handle.
 pub fn handle_request(
     log: &Logger,
-    config: &dyn RequestTypeIgnorer,
+    config: &Config,
     request: &protocol::Request,
 ) -> Result<Vec<u8>> {
     if config.should_ignore(&request.ty) {

@@ -28,8 +28,6 @@ num-traits = "^0.2"
 sd-notify = "~0.3"
 # Indirect dependency, constrained for MSRV
 once_cell = "~1.14"
-# version 3 MSRV is too new: pulls in os_str_bytes 6.0 which has too high an MSRV
-clap = "2"
 
 [dev-dependencies]
 criterion = "^0.3"
