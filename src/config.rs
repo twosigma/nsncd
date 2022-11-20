@@ -145,17 +145,17 @@ impl Default for Config {
 }
 
 fn env_positive_usize(var: &'static str, default: usize) -> Result<usize> {
-    if let Ok(v) = env::var(var) {
-        let val = v
-            .parse()
-            .with_context(|| format!("parsing int from {}", v))?;
-        if val > 0 {
-            Ok(val)
-        } else {
-            Err(anyhow::format_err!("variable {} cannot be 0", var))
-        }
+    let s = match env::var(var) {
+        Ok(s) => s,
+        Err(_) => return Ok(default),
+    };
+    let val = s
+        .parse()
+        .with_context(|| format!("parsing int from {}", s))?;
+    if val > 0 {
+        Ok(val)
     } else {
-        Ok(default)
+        Err(anyhow::format_err!("variable {} cannot be 0", var))
     }
 }
 
