@@ -20,14 +20,67 @@ use std::time::Duration;
 use std::{collections::BTreeMap, env};
 
 use anyhow::{Context, Result};
+use num_traits::FromPrimitive;
 
 use super::protocol::RequestType;
 
+/// Size of the bitset for request types. Smaller values tend to exhibit worse
+/// cache performance in some quick benchmarks:
+/// https://gist.github.com/blinsay/3d233a09c59c083d8d27ccba4e322f04
+const BITSET_SIZE: usize = 256;
+
+#[derive(Clone, Copy)]
+pub struct RequestTypeSet {
+    bits: [bool; BITSET_SIZE],
+}
+
+impl RequestTypeSet {
+    pub fn new() -> Self {
+        Self {
+            bits: [Default::default(); BITSET_SIZE],
+        }
+    }
+
+    pub fn insert(&mut self, val: &RequestType) -> bool {
+        let val = *val as usize;
+        if self.bits[val] {
+            false
+        } else {
+            self.bits[val] = true;
+            true
+        }
+    }
+
+    pub fn contains(&self, val: &RequestType) -> bool {
+        let val = *val as usize;
+        self.bits[val]
+    }
+}
+
+impl Default for RequestTypeSet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for RequestTypeSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut f = f.debug_set();
+        for i in 0..(RequestType::LASTREQ as i32) {
+            let ty = &FromPrimitive::from_i32(i).unwrap();
+            if self.contains(ty) {
+                f.entry(ty);
+            }
+        }
+        f.finish()
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
+    pub ignored_request_types: RequestTypeSet,
     pub worker_count: usize,
     pub handoff_timeout: Duration,
-    pub ignored_request_types: [bool; 32],
 }
 
 /// Mapping from nsswitch.conf "database" name to the request types related to
@@ -97,7 +150,7 @@ impl Config {
             ops_map
         };
 
-        let mut ignored_request_types = [false; 32];
+        let mut ignored_request_types = RequestTypeSet::new();
 
         for (key, value) in env::vars() {
             let op_group = {
@@ -117,22 +170,22 @@ impl Config {
                 .with_context(|| format!("parsing bool from {}", value))?;
             if value {
                 for ty in types.iter() {
-                    ignored_request_types[*ty as usize] = true;
+                    ignored_request_types.insert(ty);
                 }
             }
         }
 
         Ok(Self {
+            ignored_request_types,
             worker_count: env_positive_usize("NSNCD_WORKER_COUNT", 8)?,
             handoff_timeout: Duration::from_secs(
                 env_positive_usize("NSNCD_HANDOFF_TIMEOUT", 3)? as u64
             ),
-            ignored_request_types,
         })
     }
 
     pub fn should_ignore(&self, ty: &RequestType) -> bool {
-        self.ignored_request_types[*ty as usize]
+        self.ignored_request_types.contains(ty)
     }
 }
 
@@ -141,7 +194,7 @@ impl Default for Config {
         Self {
             worker_count: 8,
             handoff_timeout: Duration::from_secs(3),
-            ignored_request_types: [false; 32],
+            ignored_request_types: Default::default(),
         }
     }
 }
