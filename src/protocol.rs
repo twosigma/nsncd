@@ -26,7 +26,7 @@ use std::convert::TryInto;
 use std::mem::size_of;
 
 use anyhow::{ensure, Context, Result};
-use num_derive::FromPrimitive;
+use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::FromPrimitive;
 
 use nix::libc::{c_int, gid_t, uid_t};
@@ -37,7 +37,7 @@ pub const VERSION: i32 = 2;
 
 /// Available services. This enum describes all service types the nscd protocol
 /// knows about, though we only implement `GETPW*`, `GETGR*`, and `INITGROUPS`.
-#[derive(Debug, FromPrimitive)]
+#[derive(Clone, Copy, Debug, FromPrimitive, ToPrimitive)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum RequestType {
     GETPWBYNAME,

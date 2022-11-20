@@ -450,6 +450,8 @@ dependencies = [
  "slog",
  "slog-async",
  "slog-term",
+ "static_assertions",
+ "temp-env",
 ]
 
 [[package]]
@@ -724,6 +726,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
 name = "syn"
 version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -739,6 +747,15 @@ name = "take_mut"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f764005d11ee5f36500a149ace24e00e3da98b0158b3e2d53a7495660d3f4d60"
+
+[[package]]
+name = "temp-env"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a30d48359f77fbb6af3d7b928cc2d092e1dc90b44f397e979ef08ae15733ed65"
+dependencies = [
+ "once_cell",
+]
 
 [[package]]
 name = "term"

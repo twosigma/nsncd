@@ -25,6 +25,31 @@ install `nsncd` to run under `systemd`. See `debian/README.source` for how to
 build it - we use a few Rust crates that aren't packaged for stable Debian
 releases.
 
+## Configuration
+
+`nsncd` looks in its environment for configuration.
+
+There are two integer variables we pay attention to: `NSNCD_WORKER_COUNT` and
+`NSNCD_HANDOFF_TIMEOUT`. Both must be positive (non-zero), and the timeout is
+in seconds.
+
+We also pay attention to variables `NSNCD_IGNORE_<DATABASE>` where `<DATABASE>`
+is one of the database names from `nsswitch.conf(5)`, capitalized:
+
+- NSNCD_IGNORE_GROUP
+- NSNCD_IGNORE_HOSTS
+- NSNCD_IGNORE_INITGROUPS
+- NSNCD_IGNORE_NETGROUP
+- NSNCD_IGNORE_PASSWD
+- NSNCD_IGNORE_SERVICES
+
+These variables must be either `true` or `false`. The default is `false` (don't
+ignore any requests). If one of these variables is set to true, `nsncd` will
+not respond to the requests related to that database.
+
+Some request types may be ignored by the implementation (e.g. the ones that
+request a file descriptor pointing into internal cache structures).
+
 ## Bug Reports and Contributions
 
 Please create GitHub issues and/or pull requests.
