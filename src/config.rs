@@ -21,6 +21,7 @@ use std::{collections::BTreeMap, env};
 
 use anyhow::{Context, Result};
 use num_traits::FromPrimitive;
+use static_assertions::const_assert;
 
 use super::protocol::RequestType;
 
@@ -28,6 +29,7 @@ use super::protocol::RequestType;
 /// cache performance in some quick benchmarks:
 /// https://gist.github.com/blinsay/3d233a09c59c083d8d27ccba4e322f04
 const BITSET_SIZE: usize = 256;
+const_assert!((RequestType::LASTREQ as usize) < BITSET_SIZE);
 
 #[derive(Clone, Copy)]
 pub struct RequestTypeSet {
