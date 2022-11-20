@@ -52,7 +52,6 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use clap::Parser;
 use crossbeam_channel as channel;
 use sd_notify::NotifyState;
 use slog::{debug, error, o, Drain};
@@ -63,7 +62,7 @@ mod handlers;
 mod protocol;
 mod work_group;
 
-use config::Config;
+use config::{Config, Parser};
 use work_group::WorkGroup;
 
 const SOCKET_PATH: &str = "/var/run/nscd/socket";
@@ -77,7 +76,7 @@ fn main() -> Result<()> {
 
     let logger = slog::Logger::root(drain, slog::o!());
 
-    let config = Config::parse();
+    let config = Config::parse()?;
     let path = Path::new(SOCKET_PATH);
 
     slog::info!(logger, "started";
