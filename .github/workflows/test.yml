@@ -34,19 +34,38 @@ jobs:
         with:
           fail_ci_if_error: true
 
-  build-debian-10:
+  build:
     runs-on: ubuntu-latest
-    container: debian:10
 
     steps:
       - uses: actions/checkout@v3
+      - name: Build
+        run: cargo build --verbose
+      - name: Tar
+        run: tar cf nsncd.tar target/debug/nsncd
+      - uses: actions/upload-artifact@v3
+        with:
+          name: nsncd
+          path: nsncd.tar
+
+  run-ci-debian-10:
+    runs-on: ubuntu-latest
+    container: debian:10
+    needs: [build]
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/download-artifact@v3
+        with:
+          name: nsncd
+      - name: Untar
+        run: tar xf nsncd.tar
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get -y install build-essential dpkg-dev ca-certificates
-          apt-get -y build-dep .
-      - name: Build
-        run: cargo build --verbose
+          apt-get -y install build-essential sudo
+      - name: CI
+        run: ci/test-prebuilt.sh
 
   clippy:
     runs-on: ubuntu-latest
