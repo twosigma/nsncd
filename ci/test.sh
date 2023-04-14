@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright 2020 Two Sigma Open Source, LLC
+# Copyright 2020-2023 Two Sigma Open Source, LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,11 +16,9 @@
 
 set -ex
 
-debian/rules vendor
-dpkg-buildpackage --no-sign
 gcc -fPIC -shared -o ci/libnss_whatami.so.2 ci/libnss_whatami.c
 sudo cp ci/libnss_whatami.so.2 /lib
 sudo sed -i 's/\(passwd\|group\):/& whatami/' /etc/nsswitch.conf
-sudo dpkg -i ../nsncd*.deb
+sudo dpkg -i nsncd*.deb
 getent passwd whatami | grep nsncd
 getent initgroups am_i_nsncd | grep '100001.*100020'
