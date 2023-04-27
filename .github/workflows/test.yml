@@ -74,7 +74,7 @@ jobs:
           apt-get update
           apt-get install -y build-essential dpkg-dev
           cd clone
-          apt-get build-dep .
+          apt-get build-dep -y .
       - name: Build package
         run: |
           debian/rules vendor
