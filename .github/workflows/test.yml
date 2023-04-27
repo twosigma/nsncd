@@ -93,6 +93,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get -y install build-essential
       - uses: actions/download-artifact@v3
         with:
           name: deb-package
