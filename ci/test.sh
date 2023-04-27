@@ -17,8 +17,8 @@
 set -ex
 
 gcc -fPIC -shared -o ci/libnss_whatami.so.2 ci/libnss_whatami.c
-sudo cp ci/libnss_whatami.so.2 /lib
-sudo sed -i 's/\(passwd\|group\):/& whatami/' /etc/nsswitch.conf
-sudo dpkg -i nsncd*.deb
+cp ci/libnss_whatami.so.2 /lib
+sed -i 's/\(passwd\|group\):/& whatami/' /etc/nsswitch.conf
+dpkg -i nsncd*.deb
 getent passwd whatami | grep nsncd
 getent initgroups am_i_nsncd | grep '100001.*100020'
