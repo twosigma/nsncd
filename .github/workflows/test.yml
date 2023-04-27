@@ -72,7 +72,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y build-essential dpkg-dev
+          apt-get install -y build-essential dpkg-dev ca-certificates
           cd clone
           apt-get build-dep -y .
       - name: Build package
