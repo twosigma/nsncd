@@ -63,6 +63,7 @@ jobs:
 
   build-debian-package:
     runs-on: ubuntu-latest
+    container: debian:10
 
     steps:
       - uses: actions/checkout@v3
@@ -70,10 +71,10 @@ jobs:
           path: clone
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install build-essential dpkg-dev
+          apt-get update
+          apt-get install build-essential dpkg-dev
           cd clone
-          sudo apt-get build-dep .
+          apt-get build-dep .
       - name: Build package
         run: |
           debian/rules vendor
