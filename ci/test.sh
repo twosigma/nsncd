@@ -23,5 +23,5 @@ dpkg -i nsncd*.deb
 /usr/lib/nsncd &
 NSNCD_PID=$!
 trap "kill $NSNCD_PID" EXIT
-getent passwd whatami | tee /dev/stderr | grep nsncd
+getent passwd whatami | grep nsncd
 getent initgroups am_i_nsncd | grep '100001.*100020'
