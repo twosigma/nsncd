@@ -92,7 +92,25 @@ jobs:
             ./*
             !./clone/**
 
-  run-ci:
+  run-ci-ubuntu-latest:
+    runs-on: ubuntu-latest
+    needs: [build-debian-package]
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get -y install build-essential
+      - uses: actions/download-artifact@v3
+        with:
+          name: deb-package
+      - name: CI
+        run: ci/test.sh
+        env:
+          HAVE_SYSTEMD: "1"
+
+  run-ci-debian-10:
     runs-on: ubuntu-latest
     container: debian:10
     needs: [build-debian-package]
@@ -108,6 +126,8 @@ jobs:
           name: deb-package
       - name: CI
         run: ci/test.sh
+        env:
+          HAVE_SYSTEMD: "0"
 
   create-release:
     runs-on: ubuntu-latest

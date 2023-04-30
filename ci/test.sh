@@ -17,11 +17,17 @@
 set -ex
 
 gcc -fPIC -shared -o ci/libnss_whatami.so.2 ci/libnss_whatami.c
-cp ci/libnss_whatami.so.2 /lib
-sed -i 's/\(passwd\|group\):/& whatami/' /etc/nsswitch.conf
-dpkg -i nsncd*.deb
-/usr/lib/nsncd &
-NSNCD_PID=$!
-trap "kill $NSNCD_PID" EXIT
+if [[ "${HAVE_SYSTEMD}" == 1 ]]; then
+    sudo cp ci/libnss_whatami.so.2 /lib
+    sudo sed -i 's/\(passwd\|group\):/& whatami/' /etc/nsswitch.conf
+    sudo dpkg -i nsncd*.deb
+else
+    cp ci/libnss_whatami.so.2 /lib
+    sed -i 's/\(passwd\|group\):/& whatami/' /etc/nsswitch.conf
+    dpkg -i nsncd*.deb
+    /usr/lib/nsncd &
+    NSNCD_PID=$!
+    trap "kill $NSNCD_PID" EXIT
+fi
 getent passwd whatami | grep nsncd
 getent initgroups am_i_nsncd | grep '100001.*100020'
