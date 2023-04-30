@@ -17,7 +17,7 @@
 set -ex
 
 gcc -fPIC -shared -o ci/libnss_whatami.so.2 ci/libnss_whatami.c
-if [ "${HAVE_SYSTEMD}" == 1 ]; then
+if [ "${HAVE_SYSTEMD}" = "1" ]; then
     sudo cp ci/libnss_whatami.so.2 /lib
     sudo sed -i 's/\(passwd\|group\):/& whatami/' /etc/nsswitch.conf
     sudo dpkg -i nsncd*.deb
