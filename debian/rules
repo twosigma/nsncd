@@ -9,8 +9,24 @@ override_dh_auto_build:
 override_dh_auto_clean:
 	cargo clean
 
-override_dh_builddeb:
-	dh_builddeb -- -Zxz
+# We use `__nss_disable_nscd` which is `GLIBC_PRIVATE`, which means the debian
+# tools don't know how to pick a minimum version of libc6 for it. It instead
+# picks a version range like `libc6 (>> 2.31), libc6 (<< 2.32)` if built on a
+# system with 2.31.
+#
+# The effect of this that we don't like is that we can't install the .deb on an
+# OS with a newer libc than the build machine, because that version bound is
+# strict.
+#
+# This rule somewhat rudely edits them out of substvars after they're generated.
+# We're taking a chance here that glibc isn't going to delete or change
+# `__nss_disable_nscd` soon in the future.
+#
+# See https://github.com/twosigma/nsncd/pull/61#issuecomment-1529166183 for the
+# original discovery of this.
+override_dh_shlibdeps:
+	dh_shlibdeps
+	sed -i -e '/^shlibs:Depends=/s/, libc6 (\(<<\|>>\) [0-9\.]*)//g' debian/nsncd.substvars
 
 # See README.source.
 vendor:
