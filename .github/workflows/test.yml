@@ -7,7 +7,7 @@ on:
   release:
     types: [published]
   schedule:
-    - cron: '15 23 * * *'
+    - cron: '25 3 * * *'
 
 env:
   CARGO_TERM_COLOR: always
