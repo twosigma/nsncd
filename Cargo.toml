@@ -1,6 +1,6 @@
 [package]
 name = "nsncd"
-version = "1.4.0"
+version = "1.4.1"
 authors = [
     "Ben Linsay <ben.linsay@twosigma.com>",
     "Geoffrey Thomas <geoffrey.thomas@twosigma.com>",
