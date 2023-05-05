@@ -28,6 +28,7 @@ else
     /usr/lib/nsncd &
     NSNCD_PID=$!
     trap "kill $NSNCD_PID" EXIT
+    sleep 1  # Give it a moment to start up
 fi
 getent passwd whatami | grep nsncd
 getent initgroups am_i_nsncd | grep '100001.*100020'
