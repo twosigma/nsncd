@@ -1,5 +1,5 @@
 /*
- * Copyright 2022 Two Sigma Open Source, LLC
+ * Copyright 2022-2023 Two Sigma Open Source, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -147,7 +147,7 @@ impl Config {
         let ops_map = {
             let mut ops_map = BTreeMap::new();
             for (op_group, types) in OPS_BY_DATABASE.iter() {
-                ops_map.insert(op_group.to_uppercase().to_string(), *types);
+                ops_map.insert(op_group.to_uppercase().into_boxed_str(), *types);
             }
             ops_map
         };
@@ -155,24 +155,18 @@ impl Config {
         let mut ignored_request_types = RequestTypeSet::new();
 
         for (key, value) in env::vars() {
-            let op_group = {
-                // TODO: use str.strip_prefix() after upgrading rustc
-                let prefix = "NSNCD_IGNORE_";
-                if !key.starts_with(prefix) {
-                    continue;
-                }
-                &key[prefix.len()..]
-            };
-            let types = ops_map.get(op_group).ok_or_else(|| {
-                let groups = ops_map.keys().cloned().collect::<Vec<_>>().join(", ");
-                anyhow::format_err!("Unknown group '{}'. Choose from: {}", op_group, groups)
-            })?;
-            let value = value
-                .parse()
-                .with_context(|| format!("parsing bool from {}", value))?;
-            if value {
-                for ty in types.iter() {
-                    ignored_request_types.insert(ty);
+            if let Some(op_group) = key.strip_prefix("NSNCD_IGNORE_") {
+                let types = ops_map.get(op_group).ok_or_else(|| {
+                    let groups = ops_map.keys().map(|s| &**s).collect::<Vec<_>>().join(", ");
+                    anyhow::format_err!("Unknown group '{}'. Choose from: {}", op_group, groups)
+                })?;
+                let value = value
+                    .parse()
+                    .with_context(|| format!("parsing bool from {}", value))?;
+                if value {
+                    for ty in types.iter() {
+                        ignored_request_types.insert(ty);
+                    }
                 }
             }
         }
