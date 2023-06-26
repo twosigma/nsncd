@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2022 Two Sigma Open Source, LLC
+ * Copyright 2020-2023 Two Sigma Open Source, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -48,7 +48,7 @@ pub fn handle_request(
     match request.ty {
         RequestType::GETPWBYUID => {
             let key = CStr::from_bytes_with_nul(request.key)?;
-            let uid = atoi::<u32>(key.to_bytes()).context("invalid uid string")?;
+            let uid = atoi(key.to_bytes()).context("invalid uid string")?;
             let user = User::from_uid(Uid::from_raw(uid))?;
             debug!(log, "got user"; "user" => ?user);
             serialize_user(user)
@@ -61,7 +61,7 @@ pub fn handle_request(
         }
         RequestType::GETGRBYGID => {
             let key = CStr::from_bytes_with_nul(request.key)?;
-            let gid = atoi::<u32>(key.to_bytes()).context("invalid gid string")?;
+            let gid = atoi(key.to_bytes()).context("invalid gid string")?;
             let group = Group::from_gid(Gid::from_raw(gid))?;
             debug!(log, "got group"; "group" => ?group);
             serialize_group(group)
