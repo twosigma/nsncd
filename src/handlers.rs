@@ -14,14 +14,21 @@
  * limitations under the License.
  */
 
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::ffi::{CStr, CString};
+use std::net::IpAddr;
 use std::os::unix::ffi::OsStrExt;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use atoi::atoi;
+use nix::sys::socket::AddressFamily;
 use nix::unistd::{getgrouplist, Gid, Group, Uid, User};
 use slog::{debug, error, Logger};
+use std::mem::size_of;
+
+use crate::ffi::{gethostbyaddr_r, gethostbyname2_r, Hostent, LibcIp};
+use crate::protocol::{AiResponse, AiResponseHeader};
 
 use super::config::Config;
 use super::protocol;
@@ -134,6 +141,107 @@ pub fn handle_request(
             Ok(vec![])
         }
 
+        RequestType::GETAI => {
+            let hostname = CStr::from_bytes_with_nul(request.key)?.to_str()?;
+            let resp = dns_lookup::getaddrinfo(Some(hostname), None, None);
+
+            let ai_resp_empty = AiResponse {
+                canon_name: hostname.to_string(),
+                addrs: vec![],
+            };
+
+            let ai_resp: AiResponse = match resp {
+                Ok(ai_resp_iter) => {
+                    let addrs: HashSet<IpAddr> = ai_resp_iter
+                        .filter_map(|e| e.ok())
+                        .map(|e| e.sockaddr.ip())
+                        .collect();
+                    AiResponse {
+                        canon_name: hostname.to_string(),
+                        addrs: addrs.iter().copied().collect::<Vec<IpAddr>>(),
+                    }
+                }
+                Err(_) => ai_resp_empty,
+            };
+
+            serialize_address_info(&ai_resp)
+        }
+
+        // GETHOSTBYADDR and GETHOSTBYADDRv6 implement reverse lookup
+        // The key contains the address to look for.
+        RequestType::GETHOSTBYADDR => {
+            let key = request.key;
+
+            if key.len() != 4 {
+                bail!("Invalid key len: {}, expected 4", key.len());
+            }
+            let address_bytes: [u8; 4] = key.try_into()?;
+            let hostent = match gethostbyaddr_r(LibcIp::V4(address_bytes)) {
+                Ok(hostent) => hostent,
+                Err(e) =>
+                // We shouldn't end up in that branch. Something
+                // got very very wrong on the glibc client side if
+                // we do. It's okay to bail, there's nothing much
+                // we can do.
+                {
+                    bail!("unexpected gethostbyaddr error: {}", e)
+                }
+            };
+            hostent.serialize()
+        }
+        RequestType::GETHOSTBYADDRv6 => {
+            let key = request.key;
+
+            if key.len() != 16 {
+                bail!("Invalid key len: {}, expected 16", key.len());
+            }
+            let address_bytes: [u8; 16] = key.try_into()?;
+            let hostent = match gethostbyaddr_r(LibcIp::V6(address_bytes)) {
+                Ok(hostent) => hostent,
+                Err(e) =>
+                // We shouldn't end up in that branch. Something
+                // got very very wrong on the glibc client side if
+                // we do. It's okay to bail, there's nothing much
+                // we can do.
+                {
+                    bail!("unexpected gethostbyaddrv6 error: {}", e)
+                }
+            };
+            hostent.serialize()
+        }
+
+        RequestType::GETHOSTBYNAME => {
+            let hostname = CStr::from_bytes_with_nul(request.key)?.to_str()?;
+            let hostent = match gethostbyname2_r(hostname.to_string(), nix::libc::AF_INET) {
+                Ok(hostent) => hostent,
+                Err(e) =>
+                // We shouldn't end up in that branch. Something
+                // got very very wrong on the glibc client side if
+                // we do. It's okay to bail, there's nothing much
+                // we can do.
+                {
+                    bail!("unexpected gethostbyname error: {:?}", e)
+                }
+            };
+            hostent.serialize()
+        }
+
+        RequestType::GETHOSTBYNAMEv6 => {
+            let hostname = CStr::from_bytes_with_nul(request.key)?.to_str()?;
+            let hostent = match gethostbyname2_r(hostname.to_string(), nix::libc::AF_INET6) {
+                Ok(hostent) => hostent,
+                Err(e) =>
+                // We shouldn't end up in that branch. Something
+                // got very very wrong on the glibc client side if
+                // we do. It's okay to bail, there's nothing much
+                // we can do.
+                {
+                    bail!("unexpected gethostbynamev6 error: {:?}", e)
+                }
+            };
+            hostent.serialize()
+        }
+
         // These will normally send an FD pointing to the internal cache structure,
         // which clients use to look into the cache contents on their own.
         // We don't cache, and we don't want clients to poke around in cache structures either.
@@ -148,12 +256,7 @@ pub fn handle_request(
         }
 
         // Not implemented (yet)
-        RequestType::GETHOSTBYADDR
-        | RequestType::GETHOSTBYADDRv6
-        | RequestType::GETHOSTBYNAME
-        | RequestType::GETHOSTBYNAMEv6
-        | RequestType::GETSTAT
-        | RequestType::GETAI
+        RequestType::GETSTAT
         | RequestType::GETSERVBYNAME
         | RequestType::GETSERVBYPORT
         | RequestType::GETNETGRENT
@@ -262,8 +365,195 @@ fn serialize_initgroups(groups: Vec<Gid>) -> Result<Vec<u8>> {
     Ok(result)
 }
 
+impl Hostent {
+    fn serialize(&self) -> Result<Vec<u8>> {
+        // Loop over all addresses.
+        // Serialize them into a slice, which is used later in the payload.
+        // Take note of the number of addresses (by AF).
+        let mut num_v4 = 0;
+        let mut num_v6 = 0;
+        let mut buf_addrs = vec![];
+        let mut buf_aliases = vec![];
+        // Memory segment used to convey the size of the different
+        // aliases. The sizes are expressed in native endian encoded 32
+        // bits integer.
+        let mut buf_aliases_size = vec![];
+
+        for address in self.addr_list.iter() {
+            match address {
+                IpAddr::V4(ip4) => {
+                    num_v4 += 1;
+                    for octet in ip4.octets() {
+                        buf_addrs.push(octet)
+                    }
+                }
+                IpAddr::V6(ip6) => {
+                    num_v6 += 1;
+                    for octet in ip6.octets() {
+                        buf_addrs.push(octet)
+                    }
+                }
+            }
+        }
+
+        for alias in self.aliases.iter() {
+            let alias_bytes = CString::new(alias.clone())?.into_bytes_with_nul();
+            let size_in_bytes = alias_bytes.len() as i32;
+            buf_aliases_size.extend_from_slice(&size_in_bytes.to_ne_bytes());
+            buf_aliases.extend_from_slice(alias_bytes.as_slice());
+        }
+
+        // this can only ever express one address family
+        if num_v4 != 0 && num_v6 != 0 {
+            bail!("unable to serialize mixed AF")
+        }
+
+        let num_addrs = num_v4 + num_v6;
+        let has_addrs = num_addrs > 0;
+
+        let hostname_c_string_bytes = CString::new(self.name.clone())?.into_bytes_with_nul();
+        let hostname_c_string_len = if has_addrs {
+            hostname_c_string_bytes.len() as i32
+        } else {
+            0
+        };
+
+        let header = protocol::HstResponseHeader {
+            version: protocol::VERSION,
+            found: if has_addrs { 1 } else { 0 },
+            h_name_len: hostname_c_string_len,
+            h_aliases_cnt: self.aliases.len() as i32,
+            h_addrtype: if !has_addrs {
+                -1
+            } else if num_v4 != 0 {
+                nix::sys::socket::AddressFamily::Inet as i32
+            } else {
+                nix::sys::socket::AddressFamily::Inet6 as i32
+            },
+            h_length: if !has_addrs {
+                -1
+            } else if num_v4 != 0 {
+                4
+            } else {
+                16
+            },
+            h_addr_list_cnt: num_addrs,
+            error: self.herrno,
+        };
+
+        let total_len = 4 * 8
+            + hostname_c_string_len
+            + buf_addrs.len() as i32
+            + buf_aliases.len() as i32
+            + buf_aliases_size.len() as i32;
+        let mut buf = Vec::with_capacity(total_len as usize);
+
+        // add header
+        buf.extend_from_slice(header.as_slice());
+
+        // add hostname
+        if has_addrs {
+            buf.extend_from_slice(&hostname_c_string_bytes);
+
+            // Add aliases sizes
+            if !self.aliases.is_empty() {
+                buf.extend_from_slice(buf_aliases_size.as_slice());
+            }
+
+            // add serialized addresses from buf_addrs
+            buf.extend_from_slice(buf_addrs.as_slice());
+        }
+
+        // add aliases
+        if !self.aliases.is_empty() {
+            buf.extend_from_slice(buf_aliases.as_slice());
+        }
+
+        debug_assert_eq!(buf.len() as i32, total_len);
+
+        Ok(buf)
+    }
+}
+
+/// Serialize a [RequestType::GETAI] response to the wire.
+///
+/// This wire format has been implemented by reading the `addhstaiX`
+/// function living in the `nscd/aicache.c` glibc file. We copy the
+/// exact same behaviour, aside from the caching part.
+///
+/// The wire getaddrinfo call result is serialized like this:
+///
+/// 1. version: int32. Hardcoded to 2.
+/// 2. found: int32. 1 if we have a result, 0 if we don't.
+/// 3. naddrs: int32. Number of IPv4/6 adresses we're about to write.
+/// 4. addrslen: int32. Total length of the IPv4/6 adresses we're
+///    about to write.
+/// 5. canonlen: int32. Total length of the null-terminated canonical
+///    name string.
+/// 6. error: int32. Error code. Always 0 in the current nscd
+///           implementation.
+/// 7. addrs: \[BE-encoded IPv4/IPv6\]. We sequentially write the
+///    IPv4 and IPv6 bytes using a big endian encoding. There's no
+///    padding, an IPv4 will be 4 bytes wide, an IPv6 16 bytes wide.
+/// 8. addr_family: \[uint8\]. This array mirrors the addrs array. Each
+///    addr element will be mirrored in this array, except we'll write
+///    the associated IP addr family number. AF_INET for an IPv4,
+///    AF_INET6 for a v6.
+/// 9. canon_name: Canonical name of the host. Null-terminated string.
+fn serialize_address_info(resp: &AiResponse) -> Result<Vec<u8>> {
+    let mut b_families: Vec<u8> = Vec::with_capacity(2);
+    let mut b_addrs: Vec<u8> = Vec::with_capacity(2);
+    for addr in &resp.addrs {
+        match addr {
+            IpAddr::V4(ip) => {
+                b_families.push(AddressFamily::Inet as u8);
+                for octet in ip.octets() {
+                    b_addrs.push(octet);
+                }
+            }
+            IpAddr::V6(ip) => {
+                b_families.push(AddressFamily::Inet6 as u8);
+                for segment in ip.segments() {
+                    for byte in u16::to_be_bytes(segment) {
+                        b_addrs.push(byte);
+                    }
+                }
+            }
+        }
+    }
+    let addrslen = b_addrs.len();
+    if addrslen > 0 {
+        let canon_name = resp.canon_name.clone();
+        let b_canon_name = CString::new(canon_name)?.into_bytes_with_nul();
+        let ai_response_header = AiResponseHeader {
+            version: protocol::VERSION,
+            found: 1,
+            naddrs: resp.addrs.len() as i32,
+            addrslen: addrslen as i32,
+            canonlen: b_canon_name.len() as i32,
+            error: protocol::H_ERRNO_NETDB_SUCCESS,
+        };
+
+        let total_len = size_of::<AiResponseHeader>() + b_addrs.len() + b_families.len();
+        let mut buffer = Vec::with_capacity(total_len);
+        buffer.extend_from_slice(ai_response_header.as_slice());
+        buffer.extend_from_slice(&b_addrs);
+        buffer.extend_from_slice(&b_families);
+        buffer.extend_from_slice(&b_canon_name);
+        Ok(buffer)
+    } else {
+        let mut buffer = Vec::with_capacity(size_of::<AiResponseHeader>());
+        buffer.extend_from_slice(protocol::AI_RESPONSE_HEADER_NOT_FOUND.as_slice());
+        Ok(buffer)
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    use nix::libc::{AF_INET, AF_INET6};
+
     use super::super::config::Config;
     use super::*;
 
@@ -309,5 +599,148 @@ mod test {
         let output = handle_request(&test_logger(), &Config::default(), &request)
             .expect("should handle request with no error");
         assert_eq!(expected, output);
+    }
+
+    #[test]
+    fn test_handle_request_getai() {
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETAI,
+            key: &CString::new("localhost".to_string())
+                .unwrap()
+                .into_bytes_with_nul(),
+        };
+
+        // The getaddrinfo call can actually return different ordering, or in the case of a
+        // IPv4-only host, only return an IPv4 response.
+        // Be happy with any of these permutations.
+        let gen_ai_resp = |addrs| protocol::AiResponse {
+            addrs,
+            canon_name: "localhost".to_string(),
+        };
+        let ai_resp_1 = gen_ai_resp(vec![
+            IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        ]);
+        let ai_resp_2 = gen_ai_resp(vec![
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+        ]);
+        let ai_resp_3 = gen_ai_resp(vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))]);
+        let expected_1: Vec<u8> = serialize_address_info(&ai_resp_1)
+            .expect("serialize_address_info should serialize correctly");
+        let expected_2: Vec<u8> = serialize_address_info(&ai_resp_2)
+            .expect("serialize_address_info should serialize correctly");
+        let expected_3: Vec<u8> = serialize_address_info(&ai_resp_3)
+            .expect("serialize_address_info should serialize correctly");
+
+        let output = handle_request(&test_logger(), &Config::default(), &request)
+            .expect("should handle request with no error");
+
+        assert!(
+            expected_1 == output || expected_2 == output || expected_3 == output,
+            "\nExpecting \n{:?}\nTo be equal to\n{:?}\nor\n{:?}\nor\n{:?}\n",
+            output,
+            expected_1,
+            expected_2,
+            expected_3
+        );
+    }
+
+    #[test]
+    fn test_handle_gethostbyaddr() {
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETHOSTBYADDR,
+            key: &[127, 0, 0, 1],
+        };
+
+        let expected = (Hostent {
+            addr_list: vec![IpAddr::from(Ipv4Addr::new(127, 0, 0, 1))],
+            name: "localhost".to_string(),
+            addr_type: AF_INET,
+            aliases: Vec::new(),
+            herrno: 0,
+        })
+        .serialize()
+        .expect("must serialize");
+
+        let output = handle_request(&test_logger(), &Config::default(), &request)
+            .expect("should handle request with no error");
+
+        assert_eq!(expected, output)
+    }
+
+    #[test]
+    fn test_handle_gethostbyaddr_invalid_len() {
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETHOSTBYADDR,
+            key: &[127, 0, 0],
+        };
+
+        let result = handle_request(&test_logger(), &Config::default(), &request);
+
+        assert!(result.is_err(), "should error on invalid length");
+    }
+
+    #[test]
+    // Fails on CI: depending on the host setup, we might get
+    // different or less aliases for localhost.
+    #[ignore]
+    fn test_handle_gethostbyaddrv6() {
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETHOSTBYADDRv6,
+            key: &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        };
+
+        let expected = (Hostent {
+            addr_list: vec![IpAddr::from(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))],
+            name: "localhost".to_string(),
+            addr_type: AF_INET6,
+            aliases: Vec::new(),
+            herrno: 0,
+        })
+        .serialize()
+        .expect("must serialize");
+
+        let output = handle_request(&test_logger(), &Config::default(), &request)
+            .expect("should handle request with no error");
+
+        assert_eq!(expected, output)
+    }
+
+    #[test]
+    fn test_handle_gethostbyaddrv6_invalid_len() {
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETHOSTBYADDRv6,
+            key: &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        };
+
+        let result = handle_request(&test_logger(), &Config::default(), &request);
+
+        assert!(result.is_err(), "should error on invalid length");
+    }
+
+    #[test]
+    fn test_hostent_serialization() {
+        let hostent = Hostent {
+            name: String::from("trantor.alternativebit.fr"),
+            aliases: vec![String::from("trantor")],
+            addr_type: AF_INET6,
+            addr_list: vec![IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))],
+            herrno: 0,
+        }
+        .serialize()
+        .expect("should serialize");
+
+        // Captured through a mismatched sockburp run
+        let expected_bytes: Vec<u8> = vec![
+            0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x1a, 0x00, 0x00, 0x00, 0x01, 0x00,
+            0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x74, 0x72, 0x61, 0x6e, 0x74, 0x6f, 0x72, 0x2e, 0x61, 0x6c,
+            0x74, 0x65, 0x72, 0x6e, 0x61, 0x74, 0x69, 0x76, 0x65, 0x62, 0x69, 0x74, 0x2e, 0x66,
+            0x72, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x74, 0x72, 0x61, 0x6e, 0x74, 0x6f,
+            0x72, 0x00,
+        ];
+        assert_eq!(hostent, expected_bytes)
     }
 }

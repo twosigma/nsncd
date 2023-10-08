@@ -22,8 +22,8 @@
 //! `handlers::send_{user,group}`. For a full picture of the protocol, you will
 //! need to read both.
 
-use std::convert::TryInto;
 use std::mem::size_of;
+use std::{convert::TryInto, net::IpAddr};
 
 use anyhow::{ensure, Context, Result};
 use num_derive::{FromPrimitive, ToPrimitive};
@@ -34,6 +34,12 @@ use nix::libc::{c_int, gid_t, uid_t};
 /// This is version 2 of the glibc nscd protocol. The version is passed as part
 /// of each message header.
 pub const VERSION: i32 = 2;
+
+/// Errors used in {Ai,Hst}ResponseHeader structs.
+/// See NSCD's resolv/netdb.h for the complete list.
+pub const H_ERRNO_NETDB_SUCCESS: i32 = 0;
+#[allow(dead_code)]
+pub const H_ERRNO_TRY_AGAIN: i32 = 2; // Non-Authoritative Host not found
 
 /// Available services. This enum describes all service types the nscd protocol
 /// knows about, though we only implement `GETPW*`, `GETGR*`, and `INITGROUPS`.
@@ -172,6 +178,82 @@ pub struct InitgroupsResponseHeader {
 }
 
 impl InitgroupsResponseHeader {
+    /// Serialize the header to bytes.
+    ///
+    /// The C implementations of nscd just take the address of the struct, so
+    /// we will too, to make it easy to convince ourselves it's correct.
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
+/// Structure containing the resulting data of a [RequestType::GETAI]
+/// operation.
+///
+/// Unlike most of the data types declared in this module, this
+/// structure isn't meant to be directly serialized to the wire.
+/// Instead, it contains all the necessary informations to to generate
+/// a [AiResponseHeader] and its associated payload.
+#[derive(Debug, Clone)]
+pub struct AiResponse {
+    pub addrs: Vec<IpAddr>,
+    pub canon_name: String,
+}
+
+/// Response Header derived from the glibc `ai_response_header`
+/// structure.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct AiResponseHeader {
+    pub version: c_int,
+    pub found: c_int,
+    pub naddrs: c_int,
+    pub addrslen: c_int,
+    pub canonlen: c_int,
+    pub error: c_int,
+}
+
+impl AiResponseHeader {
+    /// Serialize the header to bytes
+    ///
+    /// The C implementations of nscd just take the address of the struct, so
+    /// we will too, to make it easy to convince ourselves it's correct.
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
+/// Magic address info header returned to the client when an address
+/// lookup doesn't yield any matches. See glib's `nscd/aicache.c` file
+/// for the original definition.
+pub const AI_RESPONSE_HEADER_NOT_FOUND: AiResponseHeader = AiResponseHeader {
+    version: VERSION,
+    found: 0,
+    naddrs: 0,
+    addrslen: 0,
+    canonlen: 0,
+    error: 0,
+};
+
+/// Structure used to hold the reply header of a
+/// gethostbyaddr[v6]/gethostbyname[v6] request.
+/// Maps to the hst_response_header struct in nscd.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct HstResponseHeader {
+    pub version: c_int,
+    pub found: c_int,           // 0 or 1, -1 if disabled
+    pub h_name_len: c_int,      // length of the hostname null-terminated
+    pub h_aliases_cnt: c_int,   // number of aliases (0)
+    pub h_addrtype: c_int,      // AF_INET or AF_INET6
+    pub h_length: c_int,        // length of the address
+    pub h_addr_list_cnt: c_int, // number of addresses (1)
+    pub error: c_int,           // H_ERRNO_*
+}
+
+impl HstResponseHeader {
     /// Serialize the header to bytes.
     ///
     /// The C implementations of nscd just take the address of the struct, so
