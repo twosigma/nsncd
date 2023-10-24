@@ -6,7 +6,7 @@ authors = [
     "Geoffrey Thomas <geoffrey.thomas@twosigma.com>",
     "Leif Walsh <leif.walsh@twosigma.com>",
 ]
-edition = "2018"
+edition = "2021"
 description = "The name service non-caching daemon"
 readme = "README.md"
 repository = "https://github.com/twosigma/nsncd"

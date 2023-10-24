@@ -38,8 +38,6 @@ pub const VERSION: i32 = 2;
 /// Errors used in {Ai,Hst}ResponseHeader structs.
 /// See NSCD's resolv/netdb.h for the complete list.
 pub const H_ERRNO_NETDB_SUCCESS: i32 = 0;
-pub const H_ERRNO_NETDB_INTERNAL: i32 = -1;
-pub const H_ERRNO_HOST_NOT_FOUND: i32 = 1; // Authoritative Answer Host not found.
 #[allow(dead_code)]
 pub const H_ERRNO_TRY_AGAIN: i32 = 2; // Non-Authoritative Host not found
 
@@ -264,33 +262,6 @@ impl HstResponseHeader {
         let p = self as *const _ as *const u8;
         unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
     }
-
-    /// Return the serialized header as vector of bytes
-    pub fn to_vec(&self) -> Vec<u8> {
-        self.as_slice().to_vec()
-    }
-
-    pub const ERRNO_HOST_NOT_FOUND: Self = Self {
-        version: VERSION,
-        found: 0,
-        h_name_len: 0,
-        h_aliases_cnt: 0,
-        h_addrtype: -1 as i32,
-        h_length: -1 as i32,
-        h_addr_list_cnt: 0,
-        error: H_ERRNO_HOST_NOT_FOUND as i32,
-    };
-
-    pub const ERRNO_NETDB_INTERNAL: Self = Self {
-        version: VERSION,
-        found: 0,
-        h_name_len: 0,
-        h_aliases_cnt: 0,
-        h_addrtype: -1 as i32,
-        h_length: -1 as i32,
-        h_addr_list_cnt: H_ERRNO_NETDB_INTERNAL as i32,
-        error: 0,
-    };
 }
 
 #[cfg(test)]
