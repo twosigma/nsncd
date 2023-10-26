@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-use std::collections::HashSet;
 use std::convert::TryInto;
 use std::ffi::{CStr, CString};
 use std::net::IpAddr;
@@ -22,6 +21,8 @@ use std::os::unix::ffi::OsStrExt;
 
 use anyhow::{bail, Context, Result};
 use atoi::atoi;
+use dns_lookup::AddrInfoHints;
+use nix::libc::{AI_CANONNAME, SOCK_STREAM};
 use nix::sys::socket::AddressFamily;
 use nix::unistd::{getgrouplist, Gid, Group, Uid, User};
 use slog::{debug, error, Logger};
@@ -143,22 +144,44 @@ pub fn handle_request(
 
         RequestType::GETAI => {
             let hostname = CStr::from_bytes_with_nul(request.key)?.to_str()?;
-            let resp = dns_lookup::getaddrinfo(Some(hostname), None, None);
-
+            // Boths hints are necessary to mimick the glibc behaviour.
+            let hints = AddrInfoHints {
+                // The canonical name will be filled in the first
+                // addrinfo struct returned by getaddrinfo.
+                flags: AI_CANONNAME,
+                // There's no way to convey socktype in the the Nscd
+                // protocol, neither in the request nor response.
+                //
+                // Set this to SOCK_STREAM to match glibc and unscd
+                // behaviour.
+                socktype: SOCK_STREAM,
+                address: 0,
+                protocol: 0,
+            };
+            let resp = dns_lookup::getaddrinfo(Some(hostname), None, Some(hints));
             let ai_resp_empty = AiResponse {
                 canon_name: hostname.to_string(),
                 addrs: vec![],
             };
-
             let ai_resp: AiResponse = match resp {
                 Ok(ai_resp_iter) => {
-                    let addrs: HashSet<IpAddr> = ai_resp_iter
-                        .filter_map(|e| e.ok())
-                        .map(|e| e.sockaddr.ip())
-                        .collect();
+                    let mut ai_resp_iter = ai_resp_iter.filter_map(|e| e.ok()).peekable();
+                    // According to man 3 getaddrinfo, the resulting
+                    // canonical name should be stored in the first
+                    // addrinfo struct.
+                    // Re-using the request hostname if we don't get a
+                    // canonical name.
+                    let canon_name = ai_resp_iter
+                        .peek()
+                        .and_then(|e| e.canonname.to_owned())
+                        .unwrap_or(hostname.to_string());
+                    let addrs: Vec<IpAddr> = ai_resp_iter
+                            .map(|e| e.sockaddr.ip())
+                            .collect();
+
                     AiResponse {
-                        canon_name: hostname.to_string(),
-                        addrs: addrs.iter().copied().collect::<Vec<IpAddr>>(),
+                        canon_name,
+                        addrs,
                     }
                 }
                 Err(_) => ai_resp_empty,
