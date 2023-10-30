@@ -436,63 +436,71 @@ impl Hostent {
 
         let hostname_c_string_bytes = CString::new(self.name.clone())?.into_bytes_with_nul();
         let hostname_c_string_len = if has_addrs {
-            hostname_c_string_bytes.len() as i32
+            hostname_c_string_bytes.len()
         } else {
             0
         };
 
-        let header = protocol::HstResponseHeader {
-            version: protocol::VERSION,
-            found: if has_addrs { 1 } else { 0 },
-            h_name_len: hostname_c_string_len,
-            h_aliases_cnt: self.aliases.len() as i32,
-            h_addrtype: if !has_addrs {
-                -1
-            } else if num_v4 != 0 {
-                nix::sys::socket::AddressFamily::Inet as i32
-            } else {
-                nix::sys::socket::AddressFamily::Inet6 as i32
-            },
-            h_length: if !has_addrs {
-                -1
-            } else if num_v4 != 0 {
-                4
-            } else {
-                16
-            },
-            h_addr_list_cnt: num_addrs,
-            error: self.herrno,
-        };
+        let buf = if num_addrs > 0 {
 
-        let total_len = 4 * 8
-            + hostname_c_string_len
-            + buf_addrs.len() as i32
-            + buf_aliases.len() as i32
-            + buf_aliases_size.len() as i32;
-        let mut buf = Vec::with_capacity(total_len as usize);
+            let header = protocol::HstResponseHeader {
+                version: protocol::VERSION,
+                found: 1,
+                h_name_len: hostname_c_string_len as i32,
+                h_aliases_cnt: self.aliases.len() as i32,
+                h_addrtype: if num_v4 != 0 {
+                    nix::sys::socket::AddressFamily::Inet as i32
+                } else {
+                    nix::sys::socket::AddressFamily::Inet6 as i32
+                },
+                h_length: if num_v4 != 0 {
+                    4
+                } else {
+                    16
+                },
+                h_addr_list_cnt: num_addrs,
+                error: self.herrno,
+            };
 
-        // add header
-        buf.extend_from_slice(header.as_slice());
+            let total_len = std::mem::size_of::<protocol::HstResponseHeader>()
+                + hostname_c_string_len
+                + buf_addrs.len()
+                + buf_aliases.len()
+                + buf_aliases_size.len();
 
-        // add hostname
-        if has_addrs {
+            let mut buf = Vec::with_capacity(total_len);
+
+            // add header
+            buf.extend_from_slice(header.as_slice());
+
+            // add hostname
             buf.extend_from_slice(&hostname_c_string_bytes);
 
-            // Add aliases sizes
-            if !self.aliases.is_empty() {
-                buf.extend_from_slice(buf_aliases_size.as_slice());
-            }
+            // add aliases sizes
+            buf.extend_from_slice(buf_aliases_size.as_slice());
 
             // add serialized addresses from buf_addrs
             buf.extend_from_slice(buf_addrs.as_slice());
-        }
 
-        // add aliases
-        if !self.aliases.is_empty() {
+            // add aliases
             buf.extend_from_slice(buf_aliases.as_slice());
-        }
 
-        debug_assert_eq!(buf.len() as i32, total_len);
+            debug_assert_eq!(buf.len(), total_len);
+
+            buf
+        } else {
+            let error_header = protocol::HstResponseHeader {
+                version: protocol::VERSION,
+                found: 0,
+                h_name_len: 0,
+                h_aliases_cnt: 0,
+                h_addrtype: -1,
+                h_length: -1,
+                h_addr_list_cnt: 0,
+                error: self.herrno,
+            };
+            Vec::from(error_header.as_slice())
+        };
 
         Ok(buf)
     }
