@@ -187,7 +187,7 @@ pub fn handle_request(
                 Err(_) => ai_resp_empty,
             };
 
-            serialize_address_info(&ai_resp)
+            serialize_address_info(ai_resp)
         }
 
         // GETHOSTBYADDR and GETHOSTBYADDRv6 implement reverse lookup
@@ -529,7 +529,7 @@ fn serialize_hostent(hostent: Hostent) -> Result<Vec<u8>> {
 ///    the associated IP addr family number. AF_INET for an IPv4,
 ///    AF_INET6 for a v6.
 /// 9. canon_name: Canonical name of the host. Null-terminated string.
-fn serialize_address_info(resp: &AiResponse) -> Result<Vec<u8>> {
+fn serialize_address_info(resp: AiResponse) -> Result<Vec<u8>> {
     let mut b_families: Vec<u8> = Vec::with_capacity(2);
     let mut b_addrs: Vec<u8> = Vec::with_capacity(2);
     for addr in &resp.addrs {
@@ -552,8 +552,7 @@ fn serialize_address_info(resp: &AiResponse) -> Result<Vec<u8>> {
     }
     let addrslen = b_addrs.len();
     if addrslen > 0 {
-        let canon_name = resp.canon_name.clone();
-        let b_canon_name = CString::new(canon_name)?.into_bytes_with_nul();
+        let b_canon_name = CString::new(resp.canon_name)?.into_bytes_with_nul();
         let ai_response_header = AiResponseHeader {
             version: protocol::VERSION,
             found: 1,
@@ -655,11 +654,11 @@ mod test {
             IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
         ]);
         let ai_resp_3 = gen_ai_resp(vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))]);
-        let expected_1: Vec<u8> = serialize_address_info(&ai_resp_1)
+        let expected_1: Vec<u8> = serialize_address_info(ai_resp_1)
             .expect("serialize_address_info should serialize correctly");
-        let expected_2: Vec<u8> = serialize_address_info(&ai_resp_2)
+        let expected_2: Vec<u8> = serialize_address_info(ai_resp_2)
             .expect("serialize_address_info should serialize correctly");
-        let expected_3: Vec<u8> = serialize_address_info(&ai_resp_3)
+        let expected_3: Vec<u8> = serialize_address_info(ai_resp_3)
             .expect("serialize_address_info should serialize correctly");
 
         let output = handle_request(&test_logger(), &Config::default(), &request)
