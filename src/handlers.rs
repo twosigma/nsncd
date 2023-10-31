@@ -207,13 +207,12 @@ fn serialize_group(group: Option<Group>) -> Result<Vec<u8>> {
     if let Some(data) = group {
         let name = CString::new(data.name)?;
         let name_bytes = name.to_bytes_with_nul();
-        // The nix crate doesn't give us the password: https://github.com/nix-rust/nix/pull/1338
-        let passwd = CString::new("x")?;
-        let passwd_bytes = passwd.to_bytes_with_nul();
+        let mem_cnt = data.mem.len();
+        let passwd_bytes = data.passwd.to_bytes_with_nul();
         let members: Vec<CString> = data
             .mem
-            .iter()
-            .map(|member| CString::new((*member).as_bytes()))
+            .into_iter()
+            .map(CString::new)
             .collect::<Result<Vec<CString>, _>>()?;
         let members_bytes: Vec<&[u8]> = members
             .iter()
@@ -226,7 +225,7 @@ fn serialize_group(group: Option<Group>) -> Result<Vec<u8>> {
             gr_name_len: name_bytes.len().try_into()?,
             gr_passwd_len: passwd_bytes.len().try_into()?,
             gr_gid: data.gid.as_raw(),
-            gr_mem_cnt: data.mem.len().try_into()?,
+            gr_mem_cnt: mem_cnt.try_into()?,
         };
         result.extend_from_slice(header.as_slice());
         for member_bytes in members_bytes.iter() {
