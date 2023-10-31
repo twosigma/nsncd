@@ -210,7 +210,8 @@ pub fn handle_request(
                     bail!("unexpected gethostbyaddr error: {}", e)
                 }
             };
-            hostent.serialize()
+
+            serialize_hostent(hostent)
         }
         RequestType::GETHOSTBYADDRv6 => {
             let key = request.key;
@@ -230,7 +231,7 @@ pub fn handle_request(
                     bail!("unexpected gethostbyaddrv6 error: {}", e)
                 }
             };
-            hostent.serialize()
+            serialize_hostent(hostent)
         }
 
         RequestType::GETHOSTBYNAME => {
@@ -246,7 +247,7 @@ pub fn handle_request(
                     bail!("unexpected gethostbyname error: {:?}", e)
                 }
             };
-            hostent.serialize()
+            serialize_hostent(hostent)
         }
 
         RequestType::GETHOSTBYNAMEv6 => {
@@ -262,7 +263,7 @@ pub fn handle_request(
                     bail!("unexpected gethostbynamev6 error: {:?}", e)
                 }
             };
-            hostent.serialize()
+            serialize_hostent(hostent)
         }
 
         // These will normally send an FD pointing to the internal cache structure,
@@ -387,122 +388,120 @@ fn serialize_initgroups(groups: Vec<Gid>) -> Result<Vec<u8>> {
     Ok(result)
 }
 
-impl Hostent {
-    fn serialize(&self) -> Result<Vec<u8>> {
-        // Loop over all addresses.
-        // Serialize them into a slice, which is used later in the payload.
-        // Take note of the number of addresses (by AF).
-        let mut num_v4 = 0;
-        let mut num_v6 = 0;
-        let mut buf_addrs = vec![];
-        let mut buf_aliases = vec![];
-        // Memory segment used to convey the size of the different
-        // aliases. The sizes are expressed in native endian encoded 32
-        // bits integer.
-        let mut buf_aliases_size = vec![];
+fn serialize_hostent(hostent: Hostent) -> Result<Vec<u8>> {
+    // Loop over all addresses.
+    // Serialize them into a slice, which is used later in the payload.
+    // Take note of the number of addresses (by AF).
+    let mut num_v4 = 0;
+    let mut num_v6 = 0;
+    let mut buf_addrs = vec![];
+    let mut buf_aliases = vec![];
+    // Memory segment used to convey the size of the different
+    // aliases. The sizes are expressed in native endian encoded 32
+    // bits integer.
+    let mut buf_aliases_size = vec![];
 
-        for address in self.addr_list.iter() {
-            match address {
-                IpAddr::V4(ip4) => {
-                    num_v4 += 1;
-                    for octet in ip4.octets() {
-                        buf_addrs.push(octet)
-                    }
+    for address in hostent.addr_list.iter() {
+        match address {
+            IpAddr::V4(ip4) => {
+                num_v4 += 1;
+                for octet in ip4.octets() {
+                    buf_addrs.push(octet)
                 }
-                IpAddr::V6(ip6) => {
-                    num_v6 += 1;
-                    for octet in ip6.octets() {
-                        buf_addrs.push(octet)
-                    }
+            }
+            IpAddr::V6(ip6) => {
+                num_v6 += 1;
+                for octet in ip6.octets() {
+                    buf_addrs.push(octet)
                 }
             }
         }
-
-        for alias in self.aliases.iter() {
-            let alias_bytes = CString::new(alias.clone())?.into_bytes_with_nul();
-            let size_in_bytes = alias_bytes.len() as i32;
-            buf_aliases_size.extend_from_slice(&size_in_bytes.to_ne_bytes());
-            buf_aliases.extend_from_slice(alias_bytes.as_slice());
-        }
-
-        // this can only ever express one address family
-        if num_v4 != 0 && num_v6 != 0 {
-            bail!("unable to serialize mixed AF")
-        }
-
-        let num_addrs = num_v4 + num_v6;
-        let has_addrs = num_addrs > 0;
-
-        let hostname_c_string_bytes = CString::new(self.name.clone())?.into_bytes_with_nul();
-        let hostname_c_string_len = if has_addrs {
-            hostname_c_string_bytes.len()
-        } else {
-            0
-        };
-
-        let buf = if num_addrs > 0 {
-
-            let header = protocol::HstResponseHeader {
-                version: protocol::VERSION,
-                found: 1,
-                h_name_len: hostname_c_string_len as i32,
-                h_aliases_cnt: self.aliases.len() as i32,
-                h_addrtype: if num_v4 != 0 {
-                    nix::sys::socket::AddressFamily::Inet as i32
-                } else {
-                    nix::sys::socket::AddressFamily::Inet6 as i32
-                },
-                h_length: if num_v4 != 0 {
-                    4
-                } else {
-                    16
-                },
-                h_addr_list_cnt: num_addrs,
-                error: self.herrno,
-            };
-
-            let total_len = std::mem::size_of::<protocol::HstResponseHeader>()
-                + hostname_c_string_len
-                + buf_addrs.len()
-                + buf_aliases.len()
-                + buf_aliases_size.len();
-
-            let mut buf = Vec::with_capacity(total_len);
-
-            // add header
-            buf.extend_from_slice(header.as_slice());
-
-            // add hostname
-            buf.extend_from_slice(&hostname_c_string_bytes);
-
-            // add aliases sizes
-            buf.extend_from_slice(buf_aliases_size.as_slice());
-
-            // add serialized addresses from buf_addrs
-            buf.extend_from_slice(buf_addrs.as_slice());
-
-            // add aliases
-            buf.extend_from_slice(buf_aliases.as_slice());
-
-            debug_assert_eq!(buf.len(), total_len);
-
-            buf
-        } else {
-            let error_header = protocol::HstResponseHeader {
-                version: protocol::VERSION,
-                found: 0,
-                h_name_len: 0,
-                h_aliases_cnt: 0,
-                h_addrtype: -1,
-                h_length: -1,
-                h_addr_list_cnt: 0,
-                error: self.herrno,
-            };
-            Vec::from(error_header.as_slice())
-        };
-
-        Ok(buf)
     }
+
+    for alias in hostent.aliases.iter() {
+        let alias_bytes = CString::new(alias.clone())?.into_bytes_with_nul();
+        let size_in_bytes = alias_bytes.len() as i32;
+        buf_aliases_size.extend_from_slice(&size_in_bytes.to_ne_bytes());
+        buf_aliases.extend_from_slice(alias_bytes.as_slice());
+    }
+
+    // this can only ever express one address family
+    if num_v4 != 0 && num_v6 != 0 {
+        bail!("unable to serialize mixed AF")
+    }
+
+    let num_addrs = num_v4 + num_v6;
+    let has_addrs = num_addrs > 0;
+
+    let hostname_c_string_bytes = CString::new(hostent.name.clone())?.into_bytes_with_nul();
+    let hostname_c_string_len = if has_addrs {
+        hostname_c_string_bytes.len()
+    } else {
+        0
+    };
+
+    let buf = if num_addrs > 0 {
+
+        let header = protocol::HstResponseHeader {
+            version: protocol::VERSION,
+            found: 1,
+            h_name_len: hostname_c_string_len as i32,
+            h_aliases_cnt: hostent.aliases.len() as i32,
+            h_addrtype: if num_v4 != 0 {
+                nix::sys::socket::AddressFamily::Inet as i32
+            } else {
+                nix::sys::socket::AddressFamily::Inet6 as i32
+            },
+            h_length: if num_v4 != 0 {
+                4
+            } else {
+                16
+            },
+            h_addr_list_cnt: num_addrs,
+            error: hostent.herrno,
+        };
+
+        let total_len = std::mem::size_of::<protocol::HstResponseHeader>()
+            + hostname_c_string_len
+            + buf_addrs.len()
+            + buf_aliases.len()
+            + buf_aliases_size.len();
+
+        let mut buf = Vec::with_capacity(total_len);
+
+        // add header
+        buf.extend_from_slice(header.as_slice());
+
+        // add hostname
+        buf.extend_from_slice(&hostname_c_string_bytes);
+
+        // add aliases sizes
+        buf.extend_from_slice(buf_aliases_size.as_slice());
+
+        // add serialized addresses from buf_addrs
+        buf.extend_from_slice(buf_addrs.as_slice());
+
+        // add aliases
+        buf.extend_from_slice(buf_aliases.as_slice());
+
+        debug_assert_eq!(buf.len(), total_len);
+
+        buf
+    } else {
+        let error_header = protocol::HstResponseHeader {
+            version: protocol::VERSION,
+            found: 0,
+            h_name_len: 0,
+            h_aliases_cnt: 0,
+            h_addrtype: -1,
+            h_length: -1,
+            h_addr_list_cnt: 0,
+            error: hostent.herrno,
+        };
+        Vec::from(error_header.as_slice())
+    };
+
+    Ok(buf)
 }
 
 /// Serialize a [RequestType::GETAI] response to the wire.
@@ -683,15 +682,13 @@ mod test {
             key: &[127, 0, 0, 1],
         };
 
-        let expected = (Hostent {
+        let expected = serialize_hostent(Hostent {
             addr_list: vec![IpAddr::from(Ipv4Addr::new(127, 0, 0, 1))],
             name: "localhost".to_string(),
             addr_type: AF_INET,
             aliases: Vec::new(),
             herrno: 0,
-        })
-        .serialize()
-        .expect("must serialize");
+        }).expect("must serialize");
 
         let output = handle_request(&test_logger(), &Config::default(), &request)
             .expect("should handle request with no error");
@@ -721,15 +718,13 @@ mod test {
             key: &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
         };
 
-        let expected = (Hostent {
+        let expected = serialize_hostent(Hostent {
             addr_list: vec![IpAddr::from(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))],
             name: "localhost".to_string(),
             addr_type: AF_INET6,
             aliases: Vec::new(),
             herrno: 0,
-        })
-        .serialize()
-        .expect("must serialize");
+        }).expect("must serialize");
 
         let output = handle_request(&test_logger(), &Config::default(), &request)
             .expect("should handle request with no error");
@@ -751,15 +746,13 @@ mod test {
 
     #[test]
     fn test_hostent_serialization() {
-        let hostent = Hostent {
+        let hostent = serialize_hostent(Hostent {
             name: String::from("trantor.alternativebit.fr"),
             aliases: vec![String::from("trantor")],
             addr_type: AF_INET6,
             addr_list: vec![IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))],
             herrno: 0,
-        }
-        .serialize()
-        .expect("should serialize");
+        }).expect("should serialize");
 
         // Captured through a mismatched sockburp run
         let expected_bytes: Vec<u8> = vec![

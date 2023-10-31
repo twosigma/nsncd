@@ -83,7 +83,7 @@ mod glibcffi {
 /// operations.
 ///
 /// This struct can be serialized to the wire through the
-/// `serialize` function or retrieved from the C boundary using the
+/// `serialize_hostent` function or retrieved from the C boundary using the
 /// TryFrom `libc:hostent` trait.
 #[derive(Clone, Debug)]
 pub struct Hostent {
