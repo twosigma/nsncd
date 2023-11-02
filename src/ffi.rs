@@ -171,6 +171,7 @@ fn from_libc_hostent(value: libc::hostent) -> anyhow::Result<Hostent> {
         aliases,
         addr_type: value.h_addrtype,
         addr_list,
+        // If we're here, glibc gave us an hostent. We should discard herrno to match the nscd behaviour.
         herrno: 0,
     })
 }
