@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use nix::libc::{self};
 use std::convert::TryInto;
 use std::ffi::{CStr, CString};
@@ -94,6 +94,23 @@ pub struct Hostent {
     pub herrno: i32,
 }
 
+impl Hostent {
+    /// Given a herrno, constructs the hostent header we're supposed to use to
+    /// convey a lookup error.
+    /// NOTE: herrno is different from errno.h.
+    /// This is a glibc quirk, I have nothing to do with that, don't blame me :)
+    fn error_value(herrno: i32) -> Self {
+        // This is a default hostent header
+        Hostent {
+            name: "".to_string(),
+            aliases: Vec::new(),
+            addr_type: -1,
+            addr_list: Vec::new(),
+            herrno,
+        }
+    }
+}
+
 fn from_libc_hostent(value: libc::hostent) -> anyhow::Result<Hostent> {
     // validate value.h_addtype, and bail out if it's unsupported
     if value.h_addrtype != libc::AF_INET && value.h_addrtype != libc::AF_INET6 {
@@ -108,47 +125,53 @@ fn from_libc_hostent(value: libc::hostent) -> anyhow::Result<Hostent> {
         bail!("unsupported h_length for AF_INET6: {}", value.h_length);
     }
 
-    let name = unsafe { CStr::from_ptr(value.h_name).to_str().unwrap().to_string() };
+    // construct the name field.
+    // Be careful about null pointers or invalid utf-8 strings, even though this
+    // shouldn't happen.
+    if value.h_name.is_null() {
+        bail!("h_name is null");
+    }
+    let c_name = unsafe { CStr::from_ptr(value.h_name) };
+    let name = c_name
+        .to_str()
+        .map_err(|_| anyhow!("unable to convert {:?} to string", c_name))?
+        .to_string();
 
-    Ok({
-        // construct the list of aliases. keep adding to value.h_aliases until we encounter a null pointer.
-        let mut aliases: Vec<String> = Vec::new();
-        let mut h_alias_ptr = value.h_aliases as *const *const libc::c_char;
-        while !(unsafe { *h_alias_ptr }).is_null() {
-            aliases.push(unsafe { CStr::from_ptr(*h_alias_ptr).to_str().unwrap().to_string() });
-            // increment
-            unsafe {
-                h_alias_ptr = h_alias_ptr.add(1);
-            }
+    // construct the list of aliases. keep adding to value.h_aliases until we encounter a null pointer.
+    let mut aliases: Vec<String> = Vec::new();
+    let mut h_alias_ptr = value.h_aliases as *const *const libc::c_char;
+    while !(unsafe { *h_alias_ptr }).is_null() {
+        aliases.push(unsafe { CStr::from_ptr(*h_alias_ptr).to_str().unwrap().to_string() });
+        // increment
+        unsafe {
+            h_alias_ptr = h_alias_ptr.add(1);
         }
-        // value.h_addrtype
+    }
 
-        // construct the list of addresses.
-        let mut addr_list: Vec<std::net::IpAddr> = Vec::new();
+    // construct the list of addresses.
+    let mut addr_list: Vec<std::net::IpAddr> = Vec::new();
 
-        // copy the pointer into a private variable that we can mutate
-        // h_addr_list is a pointer to a list of pointers to addresses.
-        // h_addr_list[0] => ptr to first address
-        // h_addr_list[1] => null pointer (end of list)
-        let mut h_addr_ptr = value.h_addr_list as *const *const libc::c_void;
-        while !(unsafe { *h_addr_ptr }).is_null() {
-            if value.h_addrtype == libc::AF_INET {
-                let octets: [u8; 4] = unsafe { std::ptr::read((*h_addr_ptr) as *const [u8; 4]) };
-                addr_list.push(std::net::IpAddr::V4(std::net::Ipv4Addr::from(octets)));
-            } else {
-                let octets: [u8; 16] = unsafe { std::ptr::read((*h_addr_ptr) as *const [u8; 16]) };
-                addr_list.push(std::net::IpAddr::V6(std::net::Ipv6Addr::from(octets)));
-            }
-            unsafe { h_addr_ptr = h_addr_ptr.add(1) };
+    // [value.h_addr_list] is a pointer to a list of pointers to addresses.
+    // h_addr_list[0] => ptr to first address
+    // h_addr_list[n] => null pointer (end of list)
+    let mut h_addr_ptr = value.h_addr_list as *const *const libc::c_void;
+    while !(unsafe { *h_addr_ptr }).is_null() {
+        if value.h_addrtype == libc::AF_INET {
+            let octets: [u8; 4] = unsafe { std::ptr::read((*h_addr_ptr) as *const [u8; 4]) };
+            addr_list.push(std::net::IpAddr::V4(std::net::Ipv4Addr::from(octets)));
+        } else {
+            let octets: [u8; 16] = unsafe { std::ptr::read((*h_addr_ptr) as *const [u8; 16]) };
+            addr_list.push(std::net::IpAddr::V6(std::net::Ipv6Addr::from(octets)));
         }
+        unsafe { h_addr_ptr = h_addr_ptr.add(1) };
+    }
 
-        Hostent {
-            name,
-            aliases,
-            addr_type: value.h_addrtype,
-            addr_list,
-            herrno: 0,
-        }
+    Ok(Hostent {
+        name,
+        aliases,
+        addr_type: value.h_addrtype,
+        addr_list,
+        herrno: 0,
     })
 }
 
@@ -164,21 +187,10 @@ fn unmarshal_gethostbyxx(
     herrno: libc::c_int,
 ) -> anyhow::Result<Hostent> {
     if !hostent.is_null() {
-        let res = from_libc_hostent(unsafe { *hostent } )?;
+        let res = from_libc_hostent(unsafe { *hostent })?;
         Ok(res)
     } else {
-        Ok(
-            // This is a default hostent header we're supposed to use
-            // to convey a lookup error. This is a glibc quirk, I have
-            // nothing to do with that, don't blame me :)
-            Hostent {
-                name: "".to_string(),
-                aliases: Vec::new(),
-                addr_type: -1,
-                addr_list: Vec::new(),
-                herrno,
-            },
-        )
+        Ok(Hostent::error_value(herrno))
     }
 }
 
@@ -214,7 +226,7 @@ pub fn gethostbyaddr_r(addr: LibcIp) -> anyhow::Result<Hostent> {
             )
         };
 
-        if ret == libc::ERANGE && buf.capacity() < 10 * 1000 * 1000  {
+        if ret == libc::ERANGE && buf.capacity() < 10 * 1000 * 1000 {
             buf.reserve(buf.capacity() * 2);
         } else {
             break;
@@ -261,7 +273,7 @@ pub fn gethostbyname2_r(name: String, af: libc::c_int) -> anyhow::Result<Hostent
         } else {
             break;
         }
-    };
+    }
     unmarshal_gethostbyxx(hostent_result, herrno)
 }
 
