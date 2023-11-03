@@ -436,18 +436,16 @@ fn serialize_hostent(hostent: Hostent) -> Result<Vec<u8>> {
     }
 
     for alias in hostent.aliases.iter() {
-        let alias_bytes = CString::new(alias.clone())?.into_bytes_with_nul();
-        let size_in_bytes = alias_bytes.len() as i32;
-        buf_aliases_size.extend_from_slice(&size_in_bytes.to_ne_bytes());
-        buf_aliases.extend_from_slice(alias_bytes.as_slice());
+        buf_aliases_size.extend_from_slice(&(alias.as_bytes_with_nul().len() as i32).to_ne_bytes());
+        buf_aliases.extend_from_slice(alias.as_bytes_with_nul());
     }
 
-    let hostname_c_string_bytes = CString::new(hostent.name.clone())?.into_bytes_with_nul();
+    let hostname_bytes = hostent.name.into_bytes_with_nul();
 
     let header = protocol::HstResponseHeader {
         version: protocol::VERSION,
         found: 1,
-        h_name_len: hostname_c_string_bytes.len() as i32,
+        h_name_len: hostname_bytes.len() as i32,
         h_aliases_cnt: hostent.aliases.len() as i32,
         h_addrtype: if num_v4 != 0 {
             nix::sys::socket::AddressFamily::Inet as i32
@@ -460,7 +458,7 @@ fn serialize_hostent(hostent: Hostent) -> Result<Vec<u8>> {
     };
 
     let total_len = std::mem::size_of::<protocol::HstResponseHeader>()
-        + hostname_c_string_bytes.len()
+        + hostname_bytes.len()
         + buf_addrs.len()
         + buf_aliases.len()
         + buf_aliases_size.len();
@@ -471,7 +469,7 @@ fn serialize_hostent(hostent: Hostent) -> Result<Vec<u8>> {
     buf.extend_from_slice(header.as_slice());
 
     // add hostname
-    buf.extend_from_slice(&hostname_c_string_bytes);
+    buf.extend_from_slice(&hostname_bytes);
 
     // add aliases sizes
     buf.extend_from_slice(buf_aliases_size.as_slice());
@@ -660,7 +658,7 @@ mod test {
 
         let expected = serialize_hostent(Hostent {
             addr_list: vec![IpAddr::from(Ipv4Addr::new(127, 0, 0, 1))],
-            name: "localhost".to_string(),
+            name: CString::new(b"localhost".to_vec()).unwrap(),
             addr_type: AF_INET,
             aliases: Vec::new(),
             herrno: 0,
@@ -697,7 +695,7 @@ mod test {
 
         let expected = serialize_hostent(Hostent {
             addr_list: vec![IpAddr::from(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))],
-            name: "localhost".to_string(),
+            name: CString::new(b"localhost".to_vec()).unwrap(),
             addr_type: AF_INET6,
             aliases: Vec::new(),
             herrno: 0,
@@ -725,8 +723,8 @@ mod test {
     #[test]
     fn test_hostent_serialization() {
         let hostent = serialize_hostent(Hostent {
-            name: String::from("trantor.alternativebit.fr"),
-            aliases: vec![String::from("trantor")],
+            name: CString::new(b"trantor.alternativebit.fr".to_vec()).unwrap(),
+            aliases: vec![CString::new(b"trantor".to_vec()).unwrap()],
             addr_type: AF_INET6,
             addr_list: vec![IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))],
             herrno: 0,

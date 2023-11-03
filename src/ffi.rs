@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use anyhow::{anyhow, bail};
+use anyhow::bail;
 use nix::libc::{self};
 use std::convert::TryInto;
 use std::ffi::{CStr, CString};
@@ -87,8 +87,8 @@ mod glibcffi {
 /// TryFrom `libc:hostent` trait.
 #[derive(Clone, Debug)]
 pub struct Hostent {
-    pub name: String,
-    pub aliases: Vec<String>,
+    pub name: CString,
+    pub aliases: Vec<CString>,
     pub addr_type: i32,
     pub addr_list: Vec<std::net::IpAddr>,
     pub herrno: i32,
@@ -102,7 +102,7 @@ impl Hostent {
     fn error_value(herrno: i32) -> Self {
         // This is a default hostent header
         Hostent {
-            name: "".to_string(),
+            name: CString::default(),
             aliases: Vec::new(),
             addr_type: -1,
             addr_list: Vec::new(),
@@ -131,17 +131,13 @@ fn from_libc_hostent(value: libc::hostent) -> anyhow::Result<Hostent> {
     if value.h_name.is_null() {
         bail!("h_name is null");
     }
-    let c_name = unsafe { CStr::from_ptr(value.h_name) };
-    let name = c_name
-        .to_str()
-        .map_err(|_| anyhow!("unable to convert {:?} to string", c_name))?
-        .to_string();
+    let name = unsafe { CStr::from_ptr(value.h_name) };
 
     // construct the list of aliases. keep adding to value.h_aliases until we encounter a null pointer.
-    let mut aliases: Vec<String> = Vec::new();
+    let mut aliases: Vec<CString> = Vec::new();
     let mut h_alias_ptr = value.h_aliases as *const *const libc::c_char;
     while !(unsafe { *h_alias_ptr }).is_null() {
-        aliases.push(unsafe { CStr::from_ptr(*h_alias_ptr).to_str().unwrap().to_string() });
+        aliases.push(unsafe { CStr::from_ptr(*h_alias_ptr).to_owned() });
         // increment
         unsafe {
             h_alias_ptr = h_alias_ptr.add(1);
@@ -167,7 +163,7 @@ fn from_libc_hostent(value: libc::hostent) -> anyhow::Result<Hostent> {
     }
 
     Ok(Hostent {
-        name,
+        name: name.to_owned(),
         aliases,
         addr_type: value.h_addrtype,
         addr_list,
