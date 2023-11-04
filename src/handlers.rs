@@ -28,7 +28,7 @@ use nix::unistd::{getgrouplist, Gid, Group, Uid, User};
 use slog::{debug, error, Logger};
 use std::mem::size_of;
 
-use crate::ffi::{gethostbyaddr_r, gethostbyname2_r, Hostent, LibcIp};
+use crate::ffi::{gethostbyaddr_r, gethostbyname2_r, Hostent, LibcIp, HostentError};
 use crate::protocol::{AiResponse, AiResponseHeader};
 
 use super::config::Config;
@@ -196,7 +196,8 @@ pub fn handle_request(
             let address_bytes: [u8; 4] = key.try_into()?;
             let hostent = match gethostbyaddr_r(LibcIp::V4(address_bytes)) {
                 Ok(hostent) => hostent,
-                Err(e) =>
+                Err(HostentError::HError(herror)) => Hostent::error_value(herror),
+                Err(HostentError::Other(e)) =>
                 // We shouldn't end up in that branch. Something
                 // got very very wrong on the glibc client side if
                 // we do. It's okay to bail, there's nothing much
@@ -217,7 +218,8 @@ pub fn handle_request(
             let address_bytes: [u8; 16] = key.try_into()?;
             let hostent = match gethostbyaddr_r(LibcIp::V6(address_bytes)) {
                 Ok(hostent) => hostent,
-                Err(e) =>
+                Err(HostentError::HError(herror)) => Hostent::error_value(herror),
+                Err(HostentError::Other(e)) =>
                 // We shouldn't end up in that branch. Something
                 // got very very wrong on the glibc client side if
                 // we do. It's okay to bail, there's nothing much
@@ -233,7 +235,8 @@ pub fn handle_request(
             let hostname = CStr::from_bytes_with_nul(request.key)?.to_str()?;
             let hostent = match gethostbyname2_r(hostname.to_string(), nix::libc::AF_INET) {
                 Ok(hostent) => hostent,
-                Err(e) =>
+                Err(HostentError::HError(herror)) => Hostent::error_value(herror),
+                Err(HostentError::Other(e)) =>
                 // We shouldn't end up in that branch. Something
                 // got very very wrong on the glibc client side if
                 // we do. It's okay to bail, there's nothing much
@@ -249,7 +252,8 @@ pub fn handle_request(
             let hostname = CStr::from_bytes_with_nul(request.key)?.to_str()?;
             let hostent = match gethostbyname2_r(hostname.to_string(), nix::libc::AF_INET6) {
                 Ok(hostent) => hostent,
-                Err(e) =>
+                Err(HostentError::HError(herror)) => Hostent::error_value(herror),
+                Err(HostentError::Other(e)) =>
                 // We shouldn't end up in that branch. Something
                 // got very very wrong on the glibc client side if
                 // we do. It's okay to bail, there's nothing much

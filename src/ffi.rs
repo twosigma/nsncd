@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use anyhow::bail;
+use anyhow::anyhow;
 use nix::libc::{self};
 use std::convert::TryInto;
 use std::ffi::{CStr, CString};
@@ -99,7 +99,7 @@ impl Hostent {
     /// convey a lookup error.
     /// NOTE: herrno is different from errno.h.
     /// This is a glibc quirk, I have nothing to do with that, don't blame me :)
-    fn error_value(herrno: i32) -> Self {
+    pub fn error_value(herrno: i32) -> Self {
         // This is a default hostent header
         Hostent {
             name: CString::default(),
@@ -111,25 +111,38 @@ impl Hostent {
     }
 }
 
-fn from_libc_hostent(value: libc::hostent) -> anyhow::Result<Hostent> {
+/// Structure used to represent a gethostbyxxx error.
+///
+/// These operations can fail in two major ways: either they'll fail
+/// returning a Hostent, in which case they return a HError code that
+/// should be returned to the glibc client together with a dummy error
+/// Hostent. Either as an "internal failure". In that case, we won't
+/// be able to return anything to the GLibc client.
+#[derive(Debug)]
+pub enum HostentError {
+    HError(i32),
+    Other(anyhow::Error)
+}
+
+fn from_libc_hostent(value: libc::hostent) -> Result<Hostent, HostentError> {
     // validate value.h_addtype, and bail out if it's unsupported
     if value.h_addrtype != libc::AF_INET && value.h_addrtype != libc::AF_INET6 {
-        bail!("unsupported address type: {}", value.h_addrtype);
+        return Err(HostentError::Other(anyhow!("unsupported address type: {}", value.h_addrtype)));
     }
 
     // ensure value.h_length matches what we know from this address family
     if value.h_addrtype == libc::AF_INET && value.h_length != 4 {
-        bail!("unsupported h_length for AF_INET: {}", value.h_length);
+        return Err(HostentError::Other(anyhow!("unsupported h_length for AF_INET: {}", value.h_length)));
     }
     if value.h_addrtype == libc::AF_INET6 && value.h_length != 16 {
-        bail!("unsupported h_length for AF_INET6: {}", value.h_length);
+        return Err(HostentError::Other(anyhow!("unsupported h_length for AF_INET6: {}", value.h_length)));
     }
 
     // construct the name field.
     // Be careful about null pointers or invalid utf-8 strings, even though this
     // shouldn't happen.
     if value.h_name.is_null() {
-        bail!("h_name is null");
+        return Err(HostentError::Other(anyhow!("h_name is null")));
     }
     let name = unsafe { CStr::from_ptr(value.h_name) };
 
@@ -182,16 +195,16 @@ fn from_libc_hostent(value: libc::hostent) -> anyhow::Result<Hostent> {
 fn unmarshal_gethostbyxx(
     hostent: *mut libc::hostent,
     herrno: libc::c_int,
-) -> anyhow::Result<Hostent> {
+) -> Result<Hostent, HostentError> {
     if !hostent.is_null() {
         let res = from_libc_hostent(unsafe { *hostent })?;
         Ok(res)
     } else {
-        Ok(Hostent::error_value(herrno))
+        Err(HostentError::HError(herrno))
     }
 }
 
-pub fn gethostbyaddr_r(addr: LibcIp) -> anyhow::Result<Hostent> {
+pub fn gethostbyaddr_r(addr: LibcIp) -> Result<Hostent, HostentError> {
     let (addr, len, af) = match addr {
         LibcIp::V4(ref ipv4) => (ipv4 as &[u8], 4, libc::AF_INET),
         LibcIp::V6(ref ipv6) => (ipv6 as &[u8], 16, libc::AF_INET6),
@@ -235,7 +248,7 @@ pub fn gethostbyaddr_r(addr: LibcIp) -> anyhow::Result<Hostent> {
 /// Typesafe wrapper around the gethostbyname2_r glibc function
 ///
 /// af is either nix::libc::AF_INET or nix::libc::AF_INET6
-pub fn gethostbyname2_r(name: String, af: libc::c_int) -> anyhow::Result<Hostent> {
+pub fn gethostbyname2_r(name: String, af: libc::c_int) -> Result<Hostent, HostentError> {
     let name = CString::new(name).unwrap();
 
     // Prepare a libc::hostent and the pointer to the result list,
@@ -278,12 +291,11 @@ pub fn gethostbyname2_r(name: String, af: libc::c_int) -> anyhow::Result<Hostent
 fn test_gethostbyname2_r() {
     disable_internal_nscd();
 
-    let result: Result<Hostent, anyhow::Error> =
+    let result =
         gethostbyname2_r("localhost.".to_string(), libc::AF_INET);
-
     result.expect("Should resolve IPv4 localhost.");
 
-    let result: Result<Hostent, anyhow::Error> =
+    let result =
         gethostbyname2_r("localhost.".to_string(), libc::AF_INET6);
     result.expect("Should resolve IPv6 localhost.");
 }
