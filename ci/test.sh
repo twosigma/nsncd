@@ -32,8 +32,9 @@ else
 fi
 getent passwd whatami | grep nsncd
 getent initgroups am_i_nsncd | grep '100001.*100020'
-uname -a
-sudo groupadd -g 2709991565 max-privatevoid
-sudo usermod -a -G max-privatevoid $(id -un)
-su - $USER
-id | tee /dev/stderr | grep 2709991565
+if uname -a | grep -q Ubuntu; then
+    sudo groupadd -g 2709991565 max-privatevoid
+    sudo usermod -a -G max-privatevoid $(id -un)
+    sudo su -l $USER
+    id | tee /dev/stderr | grep 2709991565
+fi
