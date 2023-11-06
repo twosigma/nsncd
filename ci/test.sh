@@ -16,8 +16,6 @@
 
 set -ex
 
-sudo groupadd -g 2709991565 max-privatevoid
-sudo usermod -a -G max-privatevoid $(id -un)
 gcc -fPIC -shared -o ci/libnss_whatami.so.2 ci/libnss_whatami.c
 if [ "${HAVE_SYSTEMD}" = "1" ]; then
     sudo cp ci/libnss_whatami.so.2 /lib
@@ -34,5 +32,8 @@ else
 fi
 getent passwd whatami | grep nsncd
 getent initgroups am_i_nsncd | grep '100001.*100020'
-su -l $USER
+uname -a
+sudo groupadd -g 2709991565 max-privatevoid
+sudo usermod -a -G max-privatevoid $(id -un)
+su - $USER
 id | tee /dev/stderr | grep 2709991565
