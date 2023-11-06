@@ -34,4 +34,5 @@ else
 fi
 getent passwd whatami | grep nsncd
 getent initgroups am_i_nsncd | grep '100001.*100020'
-groups | tee /dev/stderr | grep 2709991565
+su -l $USER
+id | tee /dev/stderr | grep 2709991565
