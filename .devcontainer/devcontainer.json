@@ -5,58 +5,64 @@
 	"build": {
 		"dockerfile": "Dockerfile"
 	},
-	"runArgs": [ "--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined" ],
-
-	// Set *default* container specific settings.json values on container create.
-	"settings": {
-		"terminal.integrated.profiles.linux": {
-			"bash": {
-				"path": "bash",
-				"icon": "terminal-bash"
-			},
-			"zsh": {
-				"path": "zsh"
-			},
-			"fish": {
-				"path": "fish"
-			},
-			"tmux": {
-				"path": "tmux",
-				"icon": "terminal-tmux"
-			},
-			"pwsh": {
-				"path": "pwsh",
-				"icon": "terminal-powershell"
-			}
-		},
-		"terminal.integrated.defaultProfile.linux": "bash",
-		"lldb.executable": "/usr/bin/lldb",
-		// VS Code don't watch files under ./target
-		"files.watcherExclude": {
-			"**/target/**": true
-		},
-		"git.autofetch": true,
-		"git.branchProtection": ["main"]
-	},
-
-	// Add the IDs of extensions you want installed when the container is created.
-	"extensions": [
-		"matklad.rust-analyzer",
-		"bungcip.better-toml",
-		"vadimcn.vscode-lldb",
-		"mutantdino.resourcemonitor",
-		"stkb.rewrap",
-		"github.vscode-pull-request-github",
-		"dawidd6.debian-vscode",
-		"coolbear.systemd-unit-file"
+	"runArgs": [
+		"--cap-add=SYS_PTRACE",
+		"--security-opt",
+		"seccomp=unconfined"
 	],
-
+	"customizations": {
+		"vscode": {
+			// Set *default* container specific settings.json values on container create.
+			"settings": {
+				"terminal.integrated.profiles.linux": {
+					"bash": {
+						"path": "bash",
+						"icon": "terminal-bash"
+					},
+					"zsh": {
+						"path": "zsh"
+					},
+					"fish": {
+						"path": "fish"
+					},
+					"tmux": {
+						"path": "tmux",
+						"icon": "terminal-tmux"
+					},
+					"pwsh": {
+						"path": "pwsh",
+						"icon": "terminal-powershell"
+					}
+				},
+				"terminal.integrated.defaultProfile.linux": "bash",
+				"lldb.executable": "/usr/bin/lldb",
+				// VS Code don't watch files under ./target
+				"files.watcherExclude": {
+					"**/target/**": true
+				},
+				"git.autofetch": true,
+				"git.branchProtection": [
+					"main"
+				]
+			},
+			// Add the IDs of extensions you want installed when the container is created.
+			"extensions": [
+				"matklad.rust-analyzer",
+				"tamasfe.even-better-toml",
+				"vadimcn.vscode-lldb",
+				"mutantdino.resourcemonitor",
+				"stkb.rewrap",
+				"github.vscode-pull-request-github",
+				"dawidd6.debian-vscode",
+				"coolbear.systemd-unit-file",
+				"ms-vscode.makefile-tools"
+			]
+		}
+	},
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
-
 	// Use 'postCreateCommand' to run commands after the container is created.
 	// "postCreateCommand": "rustc --version",
-
 	// Comment out connect as root instead. More info: https://aka.ms/vscode-remote/containers/non-root.
 	"remoteUser": "vscode"
 }
