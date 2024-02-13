@@ -23,6 +23,7 @@ use std::ptr;
 #[allow(non_camel_case_types)]
 type size_t = ::std::os::raw::c_ulonglong;
 
+#[cfg(not(feature="glibc_no_nscd"))]
 extern "C" {
     /// This is the function signature of the glibc internal function to
     /// disable using nscd for this process.
@@ -39,11 +40,15 @@ extern "C" {
 unsafe extern "C" fn do_nothing(_dbidx: size_t, _finfo: *mut libc::c_void) {}
 
 /// Disable nscd inside our own glibc to prevent recursion.
+#[cfg(not(feature="glibc_no_nscd"))]
 pub fn disable_internal_nscd() {
     unsafe {
         __nss_disable_nscd(do_nothing);
     }
 }
+
+#[cfg(feature="glibc_no_nscd")]
+pub fn disable_internal_nscd() { }
 
 pub enum LibcIp {
     V4([u8; 4]),
