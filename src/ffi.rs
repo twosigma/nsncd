@@ -49,8 +49,6 @@ pub fn disable_internal_nscd() {
 
         if sym_ptr != ptr::null_mut() {
             __nss_disable_nscd(do_nothing);
-        } else {
-            println!("No nscd support, hum dee dum...");
         }
     }
 }
