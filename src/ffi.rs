@@ -37,6 +37,7 @@ extern "C" {
 /// We _are_ nscd, so we need to do the lookups, and not recurse.
 /// Until 2.14, this function was taking no parameters.
 /// In 2.15, it takes a function pointer from hell.
+#[cfg(not(feature="glibc_no_nscd"))]
 unsafe extern "C" fn do_nothing(_dbidx: size_t, _finfo: *mut libc::c_void) {}
 
 /// Disable nscd inside our own glibc to prevent recursion.
