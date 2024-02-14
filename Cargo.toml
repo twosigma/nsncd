@@ -12,12 +12,6 @@ readme = "README.md"
 repository = "https://github.com/twosigma/nsncd"
 license = "Apache-2.0"
 
-[features]
-# This feature enables building nsncd on systems where the host libc does NOT
-# have nscd support built-in. This *will* cause infinite recursion on systems
-# with nscd support in the libc.
-glibc_no_nscd = []
-
 [dependencies]
 anyhow = "^1.0"
 atoi = "^2.0"

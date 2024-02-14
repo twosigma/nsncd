@@ -15,20 +15,14 @@
  */
 
 use anyhow::anyhow;
-use nix::libc::{self};
+use nix::libc::{self, dlsym};
 use std::convert::TryInto;
 use std::ffi::{CStr, CString};
 use std::ptr;
+use std::mem;
 
 #[allow(non_camel_case_types)]
 type size_t = ::std::os::raw::c_ulonglong;
-
-#[cfg(not(feature="glibc_no_nscd"))]
-extern "C" {
-    /// This is the function signature of the glibc internal function to
-    /// disable using nscd for this process.
-    fn __nss_disable_nscd(hell: unsafe extern "C" fn(size_t, *mut libc::c_void));
-}
 
 /// Copied from
 /// [unscd](https://github.com/bytedance/unscd/blob/3a4df8de6723bc493e9cd94bb3e3fd831e48b8ca/nscd.c#L2469)
@@ -37,19 +31,29 @@ extern "C" {
 /// We _are_ nscd, so we need to do the lookups, and not recurse.
 /// Until 2.14, this function was taking no parameters.
 /// In 2.15, it takes a function pointer from hell.
-#[cfg(not(feature="glibc_no_nscd"))]
 unsafe extern "C" fn do_nothing(_dbidx: size_t, _finfo: *mut libc::c_void) {}
 
 /// Disable nscd inside our own glibc to prevent recursion.
-#[cfg(not(feature="glibc_no_nscd"))]
+/// Some versions of glibc, like the one Arch Linux provides, are built without
+/// support for nscd, but the possibility remains that this support is
+/// re-enabled in a later update.
+///
+/// This function loads the __nss_disable_nscd function through dlopen() with a
+/// null handle (hence the fugly transmute) and calls it only if it was found.
 pub fn disable_internal_nscd() {
     unsafe {
-        __nss_disable_nscd(do_nothing);
+        let sym_name = CString::new("__nss_disable_nscd").unwrap();
+        let sym_ptr = dlsym(ptr::null_mut(), sym_name.as_ptr());
+        let __nss_disable_nscd =
+            mem::transmute::<*mut libc::c_void, extern "C" fn(hell: unsafe extern "C" fn(size_t, *mut libc::c_void))>(sym_ptr);
+
+        if sym_ptr != ptr::null_mut() {
+            __nss_disable_nscd(do_nothing);
+        } else {
+            println!("No nscd support, hum dee dum...");
+        }
     }
 }
-
-#[cfg(feature="glibc_no_nscd")]
-pub fn disable_internal_nscd() { }
 
 pub enum LibcIp {
     V4([u8; 4]),
