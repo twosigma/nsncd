@@ -47,7 +47,7 @@ pub fn disable_internal_nscd() {
         let __nss_disable_nscd =
             mem::transmute::<*mut libc::c_void, extern "C" fn(hell: unsafe extern "C" fn(size_t, *mut libc::c_void))>(sym_ptr);
 
-        if sym_ptr != ptr::null_mut() {
+        if !sym_ptr.is_null() {
             __nss_disable_nscd(do_nothing);
         }
     }
