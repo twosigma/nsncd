@@ -15,11 +15,11 @@
  */
 
 use anyhow::anyhow;
-use nix::libc::{self, dlsym};
+use nix::libc::{self, dlsym, RTLD_DEFAULT};
 use std::convert::TryInto;
 use std::ffi::{CStr, CString};
-use std::ptr;
 use std::mem;
+use std::ptr;
 
 #[allow(non_camel_case_types)]
 type size_t = ::std::os::raw::c_ulonglong;
@@ -38,16 +38,17 @@ unsafe extern "C" fn do_nothing(_dbidx: size_t, _finfo: *mut libc::c_void) {}
 /// support for nscd, but the possibility remains that this support is
 /// re-enabled in a later update.
 ///
-/// This function loads the __nss_disable_nscd function through dlopen() with a
-/// null handle (hence the fugly transmute) and calls it only if it was found.
+/// This function loads the __nss_disable_nscd function through dlopen() with
+/// RTLD_DEFAULT (to find it in libc) and calls it only if it was found.
 pub fn disable_internal_nscd() {
     unsafe {
         let sym_name = CString::new("__nss_disable_nscd").unwrap();
         let sym_ptr = dlsym(ptr::null_mut(), sym_name.as_ptr());
-        let __nss_disable_nscd =
-            mem::transmute::<*mut libc::c_void, extern "C" fn(hell: unsafe extern "C" fn(size_t, *mut libc::c_void))>(sym_ptr);
-
         if !sym_ptr.is_null() {
+            let __nss_disable_nscd = mem::transmute::<
+                *mut libc::c_void,
+                extern "C" fn(hell: unsafe extern "C" fn(size_t, *mut libc::c_void))
+            >(sym_ptr);
             __nss_disable_nscd(do_nothing);
         }
     }
