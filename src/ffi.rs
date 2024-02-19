@@ -43,7 +43,7 @@ unsafe extern "C" fn do_nothing(_dbidx: size_t, _finfo: *mut libc::c_void) {}
 pub fn disable_internal_nscd() {
     unsafe {
         let sym_name = CString::new("__nss_disable_nscd").unwrap();
-        let sym_ptr = dlsym(ptr::null_mut(), sym_name.as_ptr());
+        let sym_ptr = dlsym(RTLD_DEFAULT, sym_name.as_ptr());
         if !sym_ptr.is_null() {
             let __nss_disable_nscd = mem::transmute::<
                 *mut libc::c_void,
