@@ -561,7 +561,6 @@ mod test {
 
     use nix::libc::{AF_INET, AF_INET6};
 
-    use super::super::config::Config;
     use super::*;
 
     fn test_logger() -> slog::Logger {
