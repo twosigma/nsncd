@@ -16,12 +16,14 @@
 
 //! Configuration for nsncd.
 
+use std::str::FromStr;
 use std::time::Duration;
 use std::{collections::BTreeMap, env};
 
 use anyhow::{Context, Result};
 use num_traits::FromPrimitive;
 use static_assertions::const_assert;
+use tracing::Level;
 
 use super::protocol::RequestType;
 
@@ -80,6 +82,8 @@ impl std::fmt::Debug for RequestTypeSet {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
+    pub log_level: Level,
+    pub log_json: bool,
     pub ignored_request_types: RequestTypeSet,
     pub worker_count: usize,
     pub handoff_timeout: Duration,
@@ -120,9 +124,19 @@ const OPS_BY_DATABASE: &[(&str, &[RequestType])] = &[
 impl Config {
     /// Parse config out of the environment.
     ///
-    /// There are two integer variables we pay attention to:
-    /// `NSNCD_WORKER_COUNT` and `NSNCD_HANDOFF_TIMEOUT`. Both must be positive
-    /// (non-zero).
+    /// - `NSNCD_WORKER_COUNT`: The number of worker threads nsncd will use
+    /// to handle nss requests. Must be a positive integer.
+    ///
+    /// - `NSNCD_HANDOFF_TIMEOUT`: The number of seconds nsncd will wait to
+    /// handle a request if all worker threads are busy. Must be a non-zero,
+    /// positive integer.
+    ///
+    /// - `NSNCD_LOG_LEVEL`: The nsncd log level. One of `trace`, `debug`,
+    /// `info`, `warn`, or `error`. There is currently no way to completely
+    /// disable nsncd logging.
+    ///
+    /// - `NSNCD_LOG_JSON`:  Whether to log output as structured logs in
+    //    JSON. Must be `true` or `false`. Defaults to `false` if not set.
     ///
     /// We also pay attention to variables `NSNCD_IGNORE_<DATABASE>` where
     /// `<DATABASE>` is one of the database names from `nsswitch.conf(5)`,
@@ -171,7 +185,19 @@ impl Config {
             }
         }
 
+        let log_level = env::var("NSNCD_LOG_LEVEL")
+            .ok()
+            .and_then(|s| Level::from_str(&s).ok())
+            .unwrap_or(Level::INFO);
+
+        let log_json = env::var("NSNCD_LOG_JSON")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(false);
+
         Ok(Self {
+            log_level,
+            log_json,
             ignored_request_types,
             worker_count: env_positive_usize("NSNCD_WORKER_COUNT", 8)?,
             handoff_timeout: Duration::from_secs(
@@ -188,6 +214,8 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            log_level: Level::INFO,
+            log_json: false,
             worker_count: 8,
             handoff_timeout: Duration::from_secs(3),
             ignored_request_types: Default::default(),

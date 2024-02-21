@@ -39,13 +39,13 @@
 // TODO:
 // - implement other pw and group methods?
 // - error handling
-// - logging
 // - maybe do serde better?
 // - test errors in underlying calls
 // - daemon/pidfile stuff
 
-use std::io::prelude::*;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read, Write};
+use std::net::Shutdown;
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
@@ -54,7 +54,6 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use crossbeam_channel as channel;
 use sd_notify::NotifyState;
-use slog::{debug, error, o, Drain};
 
 mod config;
 mod ffi;
@@ -63,6 +62,7 @@ mod protocol;
 mod work_group;
 
 use config::Config;
+use tracing::{debug, error, info, instrument, span, trace, Level, Span};
 use work_group::WorkGroup;
 
 const SOCKET_PATH: &str = "/var/run/nscd/socket";
@@ -70,27 +70,21 @@ const SOCKET_PATH: &str = "/var/run/nscd/socket";
 fn main() -> Result<()> {
     ffi::disable_internal_nscd();
 
-    let decorator = slog_term::TermDecorator::new().build();
-    let drain = slog_term::FullFormat::new(decorator).build().fuse();
-    let drain = slog_async::Async::new(drain).build().fuse();
-
-    let logger = slog::Logger::root(drain, slog::o!());
-
     let config = Config::from_env()?;
+    setup_tracing(&config);
+
     let path = Path::new(SOCKET_PATH);
 
-    slog::info!(logger, "started";
-        "path" => ?path,
-        "config" => ?config,
-    );
+    info!(path = path.display().to_string(), config = ?config, "started");
     let mut wg = WorkGroup::new();
-    let tx = spawn_workers(&mut wg, &logger, config);
+    let tx = spawn_workers(&mut wg, config);
 
     std::fs::create_dir_all(path.parent().expect("socket path has no parent"))?;
     std::fs::remove_file(path).ok();
+
     let listener = UnixListener::bind(path).context("could not bind to socket")?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
-    spawn_acceptor(&mut wg, &logger, listener, tx, config.handoff_timeout);
+    spawn_acceptor(&mut wg, listener, tx, config.handoff_timeout);
 
     let _ = sd_notify::notify(true, &[NotifyState::Ready]);
 
@@ -103,7 +97,7 @@ fn main() -> Result<()> {
     } else {
         // something else happened that made a process exit, so try to exit
         // gracefully.
-        slog::info!(logger, "shutting down");
+        info!("shutting down");
         for handle in handles {
             let _ = handle.join();
         }
@@ -111,16 +105,38 @@ fn main() -> Result<()> {
     }
 }
 
+fn setup_tracing(config: &Config) {
+    let builder = tracing_subscriber::fmt().with_max_level(config.log_level);
+
+    if config.log_json {
+        // the default JSON output includes a list of every parent span as a
+        // nested list. this is pretty verbose, and currently doesn't carry
+        // any interesting information - the current span is enough to
+        // identify the thead/callsite of an event.
+        builder
+            .json()
+            .with_current_span(true)
+            .with_span_list(false)
+            .init();
+    } else {
+        builder.init();
+    }
+}
+
+// NOTE: adding #instrument here would just instrument the call to wg.agg and
+// not actually instrument the thread started with wg.add
 fn spawn_acceptor(
     wg: &mut WorkGroup,
-    log: &slog::Logger,
     listener: UnixListener,
     tx: channel::Sender<UnixStream>,
     handoff_timeout: Duration,
 ) {
-    let log = log.new(o!("thread" => "accept"));
-
     wg.add(move |ctx| {
+        // start and enter a new span for the scope of the thread started in
+        // the workgroup. this gives error/info/etc events a reasonable parent
+        // span to pull attributes from
+        let _span = span!(Level::INFO, "acceptor").entered();
+
         for stream in listener.incoming() {
             if ctx.is_shutdown() {
                 break;
@@ -136,17 +152,17 @@ fn spawn_acceptor(
                 // not make a bad situation worse.
                 Ok(stream) => match tx.send_timeout(stream, handoff_timeout) {
                     Err(channel::SendTimeoutError::Timeout(_)) => {
-                        error!(log, "timed out waiting for an available worker");
+                        error!("timed out waiting for an available worker");
                         break;
                     }
                     Err(channel::SendTimeoutError::Disconnected(_)) => {
-                        error!(log, "worker channel is disconnected");
+                        error!("worker channel is disconnected");
                         break;
                     }
                     Ok(()) => { /*ok!*/ }
                 },
                 Err(err) => {
-                    error!(log, "error accepting connection"; "err" => %err);
+                    error!(err = %err, "error accepting connection");
                     break;
                 }
             }
@@ -160,22 +176,18 @@ fn spawn_acceptor(
     });
 }
 
-fn spawn_workers(
-    wg: &mut WorkGroup,
-    log: &slog::Logger,
-    config: Config,
-) -> channel::Sender<UnixStream> {
+fn spawn_workers(wg: &mut WorkGroup, config: Config) -> channel::Sender<UnixStream> {
     let (tx, rx) = channel::bounded(0);
 
     for worker_id in 0..config.worker_count {
         let rx = rx.clone();
-        let log = log.new(o!("thread" => format!("worker_{}", worker_id)));
+        let worker_id = format!("worker_{worker_id}");
 
         // ctx is ignored - the acceptor thread will close the rx channel if
         // the wg is shutdown and it's time to exit.
         wg.add(move |_ctx| {
             while let Ok(stream) = rx.recv() {
-                handle_stream(&log, &config, stream);
+                handle_stream(&worker_id, &config, stream);
             }
         });
     }
@@ -183,29 +195,35 @@ fn spawn_workers(
     tx
 }
 
-fn handle_stream(log: &slog::Logger, config: &Config, mut stream: UnixStream) {
-    debug!(log, "accepted connection"; "stream" => ?stream);
+#[instrument(
+    level = "info",
+    skip_all,
+    fields(id = worker_id, fd = ?stream.as_raw_fd()),
+)]
+fn handle_stream(worker_id: &str, config: &Config, mut stream: UnixStream) {
     let mut buf = [0; 4096];
     let size_read = match stream.read(&mut buf) {
         Ok(x) => x,
         Err(e) => {
-            debug!(log, "reading from connection"; "err" => %e);
+            debug!(err = %e, "error reading from connection");
             return;
         }
     };
     let request = match protocol::Request::parse(&buf[0..size_read]) {
         Ok(x) => x,
         Err(e) => {
-            debug!(log, "parsing request"; "err" => %e);
+            debug!(err = %e, "parsing request failed");
             return;
         }
     };
+
     let type_str = format!("{:?}", request.ty);
-    let log = log.new(o!("request_type" => type_str));
-    let response = match handlers::handle_request(&log, config, &request) {
+    Span::current().record("request_type", type_str);
+
+    let response = match handlers::handle_request(config, &request) {
         Ok(x) => x,
         Err(e) => {
-            error!(log, "error handling request"; "err" => %e);
+            error!(err = %e, "error handling request");
             return;
         }
     };
@@ -217,10 +235,13 @@ fn handle_stream(log: &slog::Logger, config: &Config, mut stream: UnixStream) {
             // increasing its buffer. There's no need to log that, and
             // generally, clients can disappear at any point.
             ErrorKind::ConnectionReset | ErrorKind::BrokenPipe => (),
-            _ => debug!(log, "sending response"; "response_len" => response.len(), "err" => %e),
+            _ => {
+                trace!(response_len = response.len(), err = %e, "sending response")
+            }
         };
     }
-    if let Err(e) = stream.shutdown(std::net::Shutdown::Both) {
-        debug!(log, "shutting down stream"; "err" => %e);
+
+    if let Err(e) = stream.shutdown(Shutdown::Both) {
+        trace!(err = %e, "shutting down stream");
     }
 }

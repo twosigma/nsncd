@@ -25,10 +25,10 @@ use dns_lookup::AddrInfoHints;
 use nix::libc::{AI_CANONNAME, SOCK_STREAM};
 use nix::sys::socket::AddressFamily;
 use nix::unistd::{getgrouplist, Gid, Group, Uid, User};
-use slog::{debug, error, Logger};
 use std::mem::size_of;
+use tracing::{debug, trace};
 
-use crate::ffi::{gethostbyaddr_r, gethostbyname2_r, Hostent, LibcIp, HostentError};
+use crate::ffi::{gethostbyaddr_r, gethostbyname2_r, Hostent, HostentError, LibcIp};
 use crate::protocol::{AiResponse, AiResponseHeader};
 
 use super::config::Config;
@@ -43,41 +43,37 @@ use super::protocol::RequestType;
 /// * `log` - A `slog` Logger.
 /// * `config` - The nsncd configuration (which request types to ignore).
 /// * `request` - The request to handle.
-pub fn handle_request(
-    log: &Logger,
-    config: &Config,
-    request: &protocol::Request,
-) -> Result<Vec<u8>> {
+pub fn handle_request(config: &Config, request: &protocol::Request) -> Result<Vec<u8>> {
     if config.should_ignore(&request.ty) {
-        debug!(log, "ignoring request"; "request" => ?request);
+        debug!(request = ?request, "ignoring request (ty = {:?})", request.ty);
         return Ok(vec![]);
     }
-    debug!(log, "handling request"; "request" => ?request);
+    trace!(request = ?request, "handling request");
     match request.ty {
         RequestType::GETPWBYUID => {
             let key = CStr::from_bytes_with_nul(request.key)?;
             let uid = atoi(key.to_bytes()).context("invalid uid string")?;
             let user = User::from_uid(Uid::from_raw(uid))?;
-            debug!(log, "got user"; "user" => ?user);
+            debug!(user = ?user, "got user");
             serialize_user(user)
         }
         RequestType::GETPWBYNAME => {
             let key = CStr::from_bytes_with_nul(request.key)?;
             let user = User::from_name(key.to_str()?)?;
-            debug!(log, "got user"; "user" => ?user);
+            debug!(user = ?user, "got user");
             serialize_user(user)
         }
         RequestType::GETGRBYGID => {
             let key = CStr::from_bytes_with_nul(request.key)?;
             let gid = atoi(key.to_bytes()).context("invalid gid string")?;
             let group = Group::from_gid(Gid::from_raw(gid))?;
-            debug!(log, "got group"; "group" => ?group);
+            debug!(group = ?group, "got group");
             serialize_group(group)
         }
         RequestType::GETGRBYNAME => {
             let key = CStr::from_bytes_with_nul(request.key)?;
             let group = Group::from_name(key.to_str()?)?;
-            debug!(log, "got group"; "group" => ?group);
+            debug!(group = ?group, "got group");
             serialize_group(group)
         }
         RequestType::INITGROUPS => {
@@ -118,10 +114,10 @@ pub fn handle_request(
             // return an empty list.
             let key = CStr::from_bytes_with_nul(request.key)?;
             let user = User::from_name(key.to_str()?)?;
-            debug!(log, "got user"; "user" => ?user);
+            debug!(user = ?user, "got user");
             let groups = if let Some(user) = user {
                 getgrouplist(key, user.gid).unwrap_or_else(|e| {
-                    error!(log, "nix::getgrouplist failed, returning empty list"; "err" => %e);
+                    tracing::error!(err = %e, "nix::getgrouplist failed, returning empty list");
                     vec![]
                 })
             } else {
@@ -132,13 +128,12 @@ pub fn handle_request(
 
         // There's no cache to invalidate
         RequestType::INVALIDATE => {
-            debug!(log, "received invalidate request, ignoring");
+            debug!("received invalidate request, ignoring");
             Ok(vec![])
         }
-
         // We don't want clients to be able to shut down nsncd.
         RequestType::SHUTDOWN => {
-            debug!(log, "received shutdown request, ignoring");
+            debug!("received shutdown request, ignoring");
             Ok(vec![])
         }
 
@@ -274,7 +269,7 @@ pub fn handle_request(
         | RequestType::GETFDHST
         | RequestType::GETFDSERV
         | RequestType::GETFDNETGR => {
-            debug!(log, "received GETFD* request, ignoring");
+            debug!("received GETFD* request, ignoring");
             Ok(vec![])
         }
 
@@ -563,10 +558,6 @@ mod test {
 
     use super::*;
 
-    fn test_logger() -> slog::Logger {
-        Logger::root(slog::Discard, slog::o!())
-    }
-
     #[test]
     fn test_handle_request_empty_key() {
         let request = protocol::Request {
@@ -574,7 +565,7 @@ mod test {
             key: &[],
         };
 
-        let result = handle_request(&test_logger(), &Config::default(), &request);
+        let result = handle_request(&Config::default(), &request);
         assert!(result.is_err(), "should error on empty input");
     }
 
@@ -585,7 +576,7 @@ mod test {
             key: &[0x7F, 0x0, 0x0, 0x01],
         };
 
-        let result = handle_request(&test_logger(), &Config::default(), &request);
+        let result = handle_request(&Config::default(), &request);
         assert!(result.is_err(), "should error on garbage input");
     }
 
@@ -602,7 +593,7 @@ mod test {
 
         let expected = serialize_user(Some(current_user))
             .expect("send_user should serialize current user data");
-        let output = handle_request(&test_logger(), &Config::default(), &request)
+        let output = handle_request(&Config::default(), &request)
             .expect("should handle request with no error");
         assert_eq!(expected, output);
     }
@@ -639,7 +630,7 @@ mod test {
         let expected_3: Vec<u8> = serialize_address_info(ai_resp_3)
             .expect("serialize_address_info should serialize correctly");
 
-        let output = handle_request(&test_logger(), &Config::default(), &request)
+        let output = handle_request(&Config::default(), &request)
             .expect("should handle request with no error");
 
         assert!(
@@ -668,7 +659,7 @@ mod test {
         })
         .expect("must serialize");
 
-        let output = handle_request(&test_logger(), &Config::default(), &request)
+        let output = handle_request(&Config::default(), &request)
             .expect("should handle request with no error");
 
         assert_eq!(expected, output)
@@ -681,7 +672,7 @@ mod test {
             key: &[127, 0, 0],
         };
 
-        let result = handle_request(&test_logger(), &Config::default(), &request);
+        let result = handle_request(&Config::default(), &request);
 
         assert!(result.is_err(), "should error on invalid length");
     }
@@ -705,7 +696,7 @@ mod test {
         })
         .expect("must serialize");
 
-        let output = handle_request(&test_logger(), &Config::default(), &request)
+        let output = handle_request(&Config::default(), &request)
             .expect("should handle request with no error");
 
         assert_eq!(expected, output)
@@ -718,7 +709,7 @@ mod test {
             key: &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         };
 
-        let result = handle_request(&test_logger(), &Config::default(), &request);
+        let result = handle_request(&Config::default(), &request);
 
         assert!(result.is_err(), "should error on invalid length");
     }
