@@ -96,7 +96,7 @@ jobs:
           debian/rules vendor
           dpkg-buildpackage --no-sign
         working-directory: clone
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: deb-package
           path: |
