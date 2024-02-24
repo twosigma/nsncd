@@ -109,7 +109,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: deb-package
       - name: CI
@@ -128,7 +128,7 @@ jobs:
         run: |
           apt-get update
           apt-get -y install build-essential
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: deb-package
       - name: CI
@@ -142,7 +142,7 @@ jobs:
     if: github.event.release
 
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: deb-package
       - uses: softprops/action-gh-release@v1
