@@ -145,7 +145,7 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           name: deb-package
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
         with:
           files: "*"
           tag_name: ${{ github.event.release.tag_name }}
