@@ -53,6 +53,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use crossbeam_channel as channel;
+use listenfd::ListenFd;
 use sd_notify::NotifyState;
 use slog::{debug, error, o, Drain};
 
@@ -77,19 +78,32 @@ fn main() -> Result<()> {
     let logger = slog::Logger::root(drain, slog::o!());
 
     let config = Config::from_env()?;
-    let path = Path::new(SOCKET_PATH);
+
+    // If we're started using socket activation, use the unix listener at index 0,
+    // else bind manually on SOCKET_PATH.
+    let (listener, listen_address) = match ListenFd::from_env()
+        .take_unix_listener(0)
+        .expect("invalid socket type at index")
+    {
+        Some(listener) => (listener, "sd-listen-unix"),
+        None => {
+            let path = Path::new(SOCKET_PATH);
+            std::fs::create_dir_all(path.parent().expect("socket path has no parent"))?;
+            std::fs::remove_file(path).ok();
+            let listener = UnixListener::bind(path).context("could not bind to socket")?;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
+
+            (listener, SOCKET_PATH)
+        }
+    };
 
     slog::info!(logger, "started";
-        "path" => ?path,
+        "listen_address" => listen_address,
         "config" => ?config,
     );
     let mut wg = WorkGroup::new();
     let tx = spawn_workers(&mut wg, &logger, config);
 
-    std::fs::create_dir_all(path.parent().expect("socket path has no parent"))?;
-    std::fs::remove_file(path).ok();
-    let listener = UnixListener::bind(path).context("could not bind to socket")?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
     spawn_acceptor(&mut wg, &logger, listener, tx, config.handoff_timeout);
 
     let _ = sd_notify::notify(true, &[NotifyState::Ready]);
