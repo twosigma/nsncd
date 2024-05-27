@@ -19,7 +19,7 @@ slog = "^2.7"
 slog-async = "^2.8"
 slog-term = "^2.9"
 crossbeam-channel = "^0.5"
-nix = { version = "^0.28", features = ["socket", "user"]}
+nix = { version = "^0.29", features = ["socket", "user"]}
 num-derive = "^0.3"
 num-traits = "^0.2"
 sd-notify = "^0.4"
