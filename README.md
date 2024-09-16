@@ -15,6 +15,8 @@ It is also a fairly minimal and clean implementation of (a part of) the `nscd`
 protocol, which is otherwise only really documented in implementations of libc,
 and mailing lists.
 
+nonce edit to re-run ci
+
 ## Installing
 
 Just run the `nsncd` binary and it will listen at `/var/run/nscd/socket`.
