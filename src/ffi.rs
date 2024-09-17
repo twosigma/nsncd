@@ -98,6 +98,7 @@ mod glibcffi {
 pub struct Hostent {
     pub name: CString,
     pub aliases: Vec<CString>,
+    #[allow(dead_code)]
     pub addr_type: i32,
     pub addr_list: Vec<std::net::IpAddr>,
     pub herrno: i32,
