@@ -27,6 +27,8 @@ use nix::sys::socket::AddressFamily;
 use nix::unistd::{getgrouplist, Gid, Group, Uid, User};
 use slog::{debug, error, Logger};
 use std::mem::size_of;
+use std::str::FromStr;
+use std::num::ParseIntError;
 
 use crate::ffi::{gethostbyaddr_r, gethostbyname2_r, Hostent, LibcIp, HostentError};
 use crate::protocol::{AiResponse, AiResponseHeader};
@@ -34,6 +36,308 @@ use crate::protocol::{AiResponse, AiResponseHeader};
 use super::config::Config;
 use super::protocol;
 use super::protocol::RequestType;
+
+
+use nix::libc::{c_char, c_int, getservbyname, getservbyport, servent, size_t};
+
+mod nixish;
+use nixish::{NixNetgroup, NixService};
+
+// these functions are not available in the nix::libc crate
+extern "C" {
+    fn setnetgrent(netgroup: *const c_char) -> i32;
+    fn endnetgrent();
+    fn getnetgrent_r(
+        hostp: *mut *mut c_char,
+        userp: *mut *mut c_char,
+        domainp: *mut *mut c_char,
+        buffer: *mut c_char,
+        buflen: size_t,
+    ) -> c_int;
+    fn innetgr(
+        netgroup: *const c_char,
+        host: *const c_char,
+        user: *const c_char,
+        domain: *const c_char,
+    ) -> c_int;
+}
+#[derive(Debug)]
+pub struct ServiceWithName {
+    pub proto: Option<String>,
+    pub service: String,
+}
+#[derive(Debug)]
+pub struct ServiceWithPort {
+    pub proto: Option<String>,
+    pub port: u16,
+}
+
+#[derive(Debug)]
+pub struct NetgroupWithName {
+    pub name: String,
+}
+#[derive(Debug)]
+pub struct InNetGroup {
+    pub netgroup: String,
+    pub host: Option<String>,
+    pub user: Option<String>,
+    pub domain: Option<String>,
+}
+
+fn serv_entry_to_nix_service(serv_entry: *const servent) -> Result<Option<NixService>> {
+    if serv_entry.is_null() {
+        return Ok(None);
+    }
+
+    let serv = unsafe { *serv_entry };
+
+    if serv.s_name.is_null() || serv.s_proto.is_null() {
+        anyhow::bail!("Service name or proto are null");
+    }
+    let name = unsafe { CStr::from_ptr(serv.s_name) }.to_owned();
+    let proto = unsafe { CStr::from_ptr(serv.s_proto) }.to_owned();
+
+    let mut alias_ptr = serv.s_aliases;
+    let mut alias_strings: Vec<CString> = vec![];
+
+    unsafe {
+        while !(*alias_ptr).is_null() {
+            alias_strings.push(CStr::from_ptr(*alias_ptr).to_owned());
+            alias_ptr = alias_ptr.offset(1);
+        }
+    }
+
+    //let port: i32 = serv.s_port;
+    Ok(Some(NixService {
+        name,
+        proto,
+        aliases: alias_strings,
+        port: serv.s_port as i32,
+    }))
+}
+
+impl FromStr for ServiceWithName {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('/').collect();
+
+        if parts.len() != 2 {
+            return Err("Input must be in the format 'service/proto'".into());
+        }
+
+        let service = parts[0].to_owned();
+        let proto = if parts[1].is_empty() {
+            None
+        } else {
+            Some(parts[1].to_owned())
+        };
+
+        Ok(ServiceWithName { proto, service })
+    }
+}
+
+impl ServiceWithName {
+    fn lookup(&self) -> Result<Option<NixService>> {
+        let serv_entry: *const servent;
+
+        if let Some(protocol) = &self.proto {
+            serv_entry = unsafe {
+                getservbyname(
+                    self.service.as_ptr() as *const c_char,
+                    protocol.as_ptr() as *const c_char,
+                )
+            };
+        } else {
+            serv_entry =
+                unsafe { getservbyname(self.service.as_ptr() as *const c_char, std::ptr::null()) };
+        }
+
+        serv_entry_to_nix_service(serv_entry)
+    }
+}
+
+impl FromStr for ServiceWithPort {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('/').collect();
+
+        if parts.len() != 2 {
+            return Err("Input must be in the format 'port/proto'".into());
+        }
+
+        let port: u16 = parts[0]
+            .parse()
+            .map_err(|err: ParseIntError| err.to_string())?;
+        let proto = if parts[1].is_empty() {
+            None
+        } else {
+            Some(parts[1].to_owned())
+        };
+
+        Ok(ServiceWithPort { proto, port })
+    }
+}
+
+impl ServiceWithPort {
+    fn lookup(&self) -> Result<Option<NixService>> {
+        let serv_entry: *const servent;
+        if let Some(protocol) = &self.proto {
+            serv_entry =
+                unsafe { getservbyport(self.port as c_int, protocol.as_ptr() as *const c_char) };
+        } else {
+            serv_entry = unsafe { getservbyport(self.port as c_int, std::ptr::null()) };
+        }
+        serv_entry_to_nix_service(serv_entry)
+    }
+}
+
+
+impl InNetGroup {
+    pub fn from_bytes(bytes: &[u8]) -> Result<InNetGroup> {
+        let netgroup: String;
+
+        let mut args: [Option<String>; 3] = [None, None, None];
+
+        /*
+        For innegroup -h h -u u -d d netgroup the input bytes string looks like this
+        6e 65 74 67 72 6f 75 70 00 01 68 00 01 75 00 01 64 00
+                                       h        u        d
+        The host, user, domain arguments are always in the same order
+        Split the input by nul byte, generate strings as appropriate, skipping the SOH byte
+        */
+
+        let parts: Vec<&[u8]> = bytes.split(|&b| b == 0).collect();
+
+        // netgroup is always present
+        netgroup = if let Ok(string) = std::str::from_utf8(parts[0]) {
+            string.to_string()
+        } else {
+            anyhow::bail!("Parsing of netgroup failed");
+        };
+
+        // The remainder are optional
+        // if len 0, just a NUL char
+        // else, SOH char followed by arg, skip element 0 when making the string
+        for idx in 0..3 {
+            if parts[idx + 1].len() > 0 {
+                args[idx] = if let Ok(string) = std::str::from_utf8(&parts[idx + 1][1..]) {
+                    Some(string.to_string())
+                } else {
+                    None
+                };
+            }
+        }
+
+        Ok(InNetGroup {
+            netgroup: netgroup,
+            host: args[0].clone(),
+            user: args[1].clone(),
+            domain: args[2].clone(),
+        })
+    }
+    fn lookup(&self) -> Result<bool> {
+        let mut host_c: *const c_char = std::ptr::null();
+        let mut user_c: *const c_char = std::ptr::null();
+        let mut domain_c: *const c_char = std::ptr::null();
+        if let Some(host) = &self.host {
+            host_c = host.as_ptr() as *const c_char;
+        }
+        if let Some(user) = &self.user {
+            user_c = user.as_ptr() as *const c_char;
+        }
+        if let Some(domain) = &self.domain {
+            domain_c = domain.as_ptr() as *const c_char;
+        }
+        let ret = unsafe {
+            innetgr(
+                self.netgroup.as_ptr() as *const c_char,
+                host_c,
+                user_c,
+                domain_c,
+            ) != 0
+        };
+        Ok(ret)
+    }
+}
+
+impl FromStr for NetgroupWithName {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let name = s.to_owned();
+
+        Ok(NetgroupWithName { name })
+    }
+}
+
+impl NetgroupWithName {
+    fn lookup(&self) -> Result<Vec<NixNetgroup>> {
+        let mut results: Vec<NixNetgroup> = vec![];
+
+        if unsafe { setnetgrent(self.name.as_ptr() as *const c_char) } != 1 {
+            anyhow::bail!("Error: Could not open netgroup {}", self.name);
+        }
+
+        let mut buffer = vec![0 as c_char; 4096];
+        let mut host: *mut c_char = std::ptr::null_mut();
+        let mut user: *mut c_char = std::ptr::null_mut();
+        let mut domain: *mut c_char = std::ptr::null_mut();
+
+        loop {
+            let result = unsafe {
+                getnetgrent_r(
+                    &mut host,
+                    &mut user,
+                    &mut domain,
+                    buffer.as_mut_ptr(),
+                    buffer.len() as size_t,
+                )
+            };
+
+            if result == 1 {
+                let host_str = if !host.is_null() {
+                    Some(unsafe { CStr::from_ptr(host) }.to_owned())
+                } else {
+                    None
+                };
+                let user_str = if !user.is_null() {
+                    Some(unsafe { CStr::from_ptr(user) }.to_owned())
+                } else {
+                    None
+                };
+                let domain_str = if !domain.is_null() {
+                    Some(unsafe { CStr::from_ptr(domain) }.to_owned())
+                } else {
+                    None
+                };
+
+                results.push(NixNetgroup {
+                    host: host_str,
+                    user: user_str,
+                    domain: domain_str,
+                });
+
+                continue;
+            } else if result == 0 {
+                unsafe { endnetgrent() };
+                break;
+            } else if result == 34 {
+                //TODO - include error number libs
+                // Double the buffer size and retry
+                buffer.resize(buffer.len() * 2, 0 as c_char);
+                continue;
+            } else {
+                // Handle other errors
+                anyhow::bail!("Error: getnetgrent_r failed with code {}", result);
+            }
+        }
+
+        Ok(results)
+    }
+}
+
 
 /// Handle a request by performing the appropriate lookup and sending the
 /// serialized response back to the client.
@@ -265,6 +569,86 @@ pub fn handle_request(
             serialize_hostent(hostent)
         }
 
+
+        RequestType::GETSERVBYNAME => {
+            /*
+            Sample requests
+            $ getent services biff
+            biff                  512/udp comsat
+            $ getent services exec
+            exec                  512/tcp
+            $ getent services exec/tcp
+            exec                  512/tcp
+            $ getent services exec/udp
+            $
+             */
+
+            //CStr is a borrowed reference to a CStyle string
+            //Is is immutable, null terminated, string slice
+            //CStr is used as the input is coming from a c ffi function
+            let key = CStr::from_bytes_with_nul(request.key)?;
+            let str_slice = key.to_str()?;
+            // Use the FromStr trait
+            match str_slice.parse::<ServiceWithName>() {
+                Ok(service_with_name) => {
+                    let service = service_with_name.lookup()?;
+                    serialize_service(service)
+                }
+                Err(_e) => {
+                    anyhow::bail!("Could not parse service request");
+                }
+            }
+        }
+        RequestType::GETSERVBYPORT => {
+            /*
+            Sample requests
+            $ getent services 512
+            exec                  512/tcp
+            $ getent services 512/tcp
+            exec                  512/tcp
+            $ getent services 512/udp
+            biff                  512/udp comsat
+
+            If /proto is not provided, defaults to tcp
+
+            When the request is received over the socket, the port is in network order
+
+            */
+            let key = CStr::from_bytes_with_nul(request.key)?;
+            let str_slice: &str = key.to_str()?;
+            // Use the FromStr trait
+            match str_slice.parse::<ServiceWithPort>() {
+                Ok(service_with_port) => {
+                    let service = service_with_port.lookup()?;
+                    serialize_service(service)
+                }
+                Err(_e) => {
+                    anyhow::bail!("Could not parse service request");
+                }
+            }
+        }
+        RequestType::GETNETGRENT => {
+            let key = CStr::from_bytes_with_nul(request.key)?;
+            let str_slice: &str = key.to_str()?;
+
+            debug!(log, "got netgroup"; "netgroup" => ?key.to_str());
+
+            match str_slice.parse::<NetgroupWithName>() {
+                Ok(netgroup_with_name) => {
+                    let netgroups = netgroup_with_name.lookup()?;
+                    serialize_netgroup(netgroups)
+                }
+                Err(_e) => {
+                    anyhow::bail!("Could not parse netgroup request");
+                }
+            }
+        }
+        RequestType::INNETGR => {
+            let in_netgroup = InNetGroup::from_bytes(request.key)?;
+            debug!(log, "{:?}", in_netgroup);
+            serialize_innetgr(in_netgroup.lookup()?)
+        }
+
         // These will normally send an FD pointing to the internal cache structure,
         // which clients use to look into the cache contents on their own.
         // We don't cache, and we don't want clients to poke around in cache structures either.
@@ -277,16 +661,140 @@ pub fn handle_request(
             debug!(log, "received GETFD* request, ignoring");
             Ok(vec![])
         }
-
         // Not implemented (yet)
         RequestType::GETSTAT
-        | RequestType::GETSERVBYNAME
-        | RequestType::GETSERVBYPORT
-        | RequestType::GETNETGRENT
-        | RequestType::INNETGR
         | RequestType::LASTREQ => Ok(vec![]),
     }
 }
+
+
+fn serialize_innetgr(innetgr: bool) -> Result<Vec<u8>> {
+    let mut result = vec![];
+
+    if innetgr {
+        let header = protocol::InNetgroupResponseHeader {
+            version: protocol::VERSION,
+            found: 1,
+            result: 1,
+        };
+        result.extend_from_slice(header.as_slice());
+    }
+    Ok(result)
+}
+
+//Take a list of NixNetGroup objects and serialize to send back
+fn serialize_netgroup(netgroups: Vec<NixNetgroup>) -> Result<Vec<u8>> {
+    let mut result = vec![];
+
+    // first we need to count the size of the return data to populate the header
+    let mut result_len: i32 = 0;
+    let mut field_len: i32;
+    for netgroup in netgroups.iter() {
+        if let Some(host) = &netgroup.host {
+            field_len = host.to_bytes_with_nul().len().try_into()?;
+            result_len += field_len;
+        } else {
+            result_len += 1;
+        }
+        if let Some(user) = &netgroup.user {
+            field_len = user.to_bytes_with_nul().len().try_into()?;
+            result_len += field_len;
+        } else {
+            result_len += 1;
+        }
+        if let Some(domain) = &netgroup.domain {
+            field_len = domain.to_bytes_with_nul().len().try_into()?;
+            result_len += field_len;
+        } else {
+            result_len += 1;
+        }
+    }
+
+    // make the header first
+    // This approach supports a 0 length list
+    let header = protocol::NetgroupResponseHeader {
+        version: protocol::VERSION,
+        found: 1,
+        nresults: netgroups.len().try_into()?,
+        result_len: result_len,
+    };
+    // TODO - this should if netgroups.len() ==0 return [].. at the top.
+    // not sure of the syntax to early return
+    if netgroups.len() > 0 {
+        result.extend_from_slice(header.as_slice());
+    }
+
+    //send all the results
+    //netgroup all, 11641 members appears to work
+    let null_string: &[u8] = b"\0";
+    for netgroup in netgroups.iter() {
+        // TODO - another loop and getattr style
+
+        if let Some(host) = &netgroup.host {
+            result.extend_from_slice(host.to_bytes_with_nul());
+        } else {
+            result.extend_from_slice(null_string);
+        }
+        if let Some(user) = &netgroup.user {
+            result.extend_from_slice(user.to_bytes_with_nul());
+        } else {
+            result.extend_from_slice(null_string);
+        }
+        if let Some(domain) = &netgroup.domain {
+            result.extend_from_slice(domain.to_bytes_with_nul());
+        } else {
+            result.extend_from_slice(null_string);
+        }
+    }
+    Ok(result)
+}
+
+/// Send a service entry back to the client, or a response indicating the
+/// lookup found no such service.
+fn serialize_service(service: Option<NixService>) -> Result<Vec<u8>> {
+    let mut result = vec![];
+
+    if let Some(data) = service {
+        let name = CString::new(data.name)?;
+        let name_bytes = name.to_bytes_with_nul();
+
+        let proto = CString::new(data.proto)?;
+        let proto_bytes = proto.to_bytes_with_nul();
+
+        let port = data.port;
+
+        let aliases: Vec<CString> = data
+            .aliases
+            .iter()
+            .map(|alias| CString::new((*alias).as_bytes()))
+            .collect::<Result<Vec<CString>, _>>()?;
+        let aliases_bytes: Vec<&[u8]> = aliases
+            .iter()
+            .map(|alias| alias.to_bytes_with_nul())
+            .collect();
+
+        let header = protocol::ServResponseHeader {
+            version: protocol::VERSION,
+            found: 1,
+            s_name_len: name_bytes.len().try_into()?,
+            s_proto_len: proto_bytes.len().try_into()?,
+            s_aliases_cnt: data.aliases.len().try_into()?,
+            s_port: port,
+        };
+        result.extend_from_slice(header.as_slice());
+        result.extend_from_slice(name_bytes);
+        result.extend_from_slice(proto_bytes);
+        for alias_bytes in aliases_bytes.iter() {
+            result.extend_from_slice(&i32::to_ne_bytes(alias_bytes.len().try_into()?));
+        }
+        //result.extend_from_slice(aliases_cnt_bytes);
+    } else {
+        let header = protocol::ServResponseHeader::default();
+        result.extend_from_slice(header.as_slice());
+    }
+    Ok(result)
+}
+
 
 /// Send a user (passwd entry) back to the client, or a response indicating the
 /// lookup found no such user.
