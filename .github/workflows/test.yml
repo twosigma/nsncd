@@ -43,26 +43,13 @@ jobs:
         with:
           fail_ci_if_error: true
 
-  build-debian-11:
-    runs-on: ubuntu-latest
-    container: debian:11
+  build-debian:
+    strategy:
+      matrix:
+        debian-version: [11, 12]
 
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get -y install build-essential dpkg-dev ca-certificates sudo curl
-          apt-get -y build-dep .
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
-      - name: Build
-        run: cargo build --verbose
-
-  build-debian-12:
     runs-on: ubuntu-latest
-    container: debian:12
+    container: debian:${{ matrix.debian-version }}
 
     steps:
       - uses: actions/checkout@v4
@@ -92,9 +79,13 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
 
-  build-debian-package-11:
+  build-debian-package:
+    strategy:
+      matrix:
+        debian-version: [11, 12]
+
     runs-on: ubuntu-latest
-    container: debian:11
+    container: debian:${{ matrix.debian-version }}
 
     steps:
       - uses: actions/checkout@v4
@@ -116,36 +107,7 @@ jobs:
         working-directory: clone
       - uses: actions/upload-artifact@v3
         with:
-          name: deb-package
-          path: |
-            ./*
-            !./clone/**
-
-  build-debian-package-12:
-    runs-on: ubuntu-latest
-    container: debian:12
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          path: clone
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y build-essential dpkg-dev ca-certificates sudo curl
-          cd clone
-          apt-get build-dep -y .
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
-      - name: Build package
-        run: |
-          debian/rules vendor
-          dpkg-buildpackage --no-sign
-        working-directory: clone
-      - uses: actions/upload-artifact@v3
-        with:
-          name: deb-package
+          name: deb-${{ matrix.debian-version }}-package
           path: |
             ./*
             !./clone/**
@@ -165,10 +127,14 @@ jobs:
           HAVE_SYSTEMD: "1"
 
 
-  run-ci-debian-11:
+  run-ci-debian:
+    strategy:
+      matrix:
+        debian-version: [11, 12]
+
     runs-on: ubuntu-latest
-    container: debian:11
-    needs: [build-debian-package-11]
+    container: debian:${{ matrix.debian-version }}
+    needs: [build-debian-package]
 
     steps:
       - uses: actions/checkout@v4
@@ -178,26 +144,7 @@ jobs:
           apt-get -y install build-essential
       - uses: actions/download-artifact@v3
         with:
-          name: deb-package
-      - name: CI
-        run: ci/test.sh
-        env:
-          HAVE_SYSTEMD: "0"
-
-  run-ci-debian-12:
-    runs-on: ubuntu-latest
-    container: debian:12
-    needs: [build-debian-package-12]
-
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get -y install build-essential
-      - uses: actions/download-artifact@v3
-        with:
-          name: deb-package
+          name: deb-${{ matrix.debian-version }}-package
       - name: CI
         run: ci/test.sh
         env:
@@ -205,7 +152,7 @@ jobs:
 
   create-release:
     runs-on: ubuntu-latest
-    needs: [run-ci-ubuntu-latest, run-ci-debian-11, run-ci-debian-12]
+    needs: [run-ci-ubuntu-latest, run-ci-debian]
     if: github.event.release
 
     steps:
