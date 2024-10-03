@@ -94,6 +94,7 @@ mod glibcffi {
 /// This struct can be serialized to the wire through the
 /// `serialize_hostent` function or retrieved from the C boundary using the
 /// TryFrom `libc:hostent` trait.
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct Hostent {
     pub name: CString,
