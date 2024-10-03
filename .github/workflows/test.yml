@@ -114,13 +114,13 @@ jobs:
 
   run-ci-ubuntu-latest:
     runs-on: ubuntu-latest
-    needs: [build-debian-package-11, build-debian-package-12]
+    needs: [build-debian-package]
 
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v3
         with:
-          name: deb-package
+          name: deb-11-package
       - name: CI
         run: ci/test.sh
         env:
