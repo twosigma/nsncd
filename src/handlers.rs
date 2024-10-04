@@ -76,7 +76,7 @@ pub struct ServiceWithPort {
 pub struct NetgroupWithName {
     pub name: String,
 }
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 pub struct InNetGroup {
     pub netgroup: String,
     pub host: Option<String>,
@@ -107,7 +107,6 @@ fn serv_entry_to_nix_service(serv_entry: *const servent) -> Result<Option<NixSer
         }
     }
 
-    //let port: i32 = serv.s_port;
     Ok(Some(NixService {
         name,
         proto,
@@ -776,16 +775,20 @@ fn serialize_service(service: Option<NixService>) -> Result<Vec<u8>> {
             found: 1,
             s_name_len: name_bytes.len().try_into()?,
             s_proto_len: proto_bytes.len().try_into()?,
-            s_aliases_cnt: data.aliases.len().try_into()?,
+            s_aliases_cnt: aliases.len().try_into()?,
             s_port: port,
         };
         result.extend_from_slice(header.as_slice());
         result.extend_from_slice(name_bytes);
         result.extend_from_slice(proto_bytes);
+        // first indicate the length of each subsequent alias
         for alias_bytes in aliases_bytes.iter() {
             result.extend_from_slice(&i32::to_ne_bytes(alias_bytes.len().try_into()?));
         }
-        //result.extend_from_slice(aliases_cnt_bytes);
+        // serialize the value of the string
+        for alias_bytes in aliases_bytes.iter() {
+            result.extend_from_slice(alias_bytes);
+        }
     } else {
         let header = protocol::ServResponseHeader::default();
         result.extend_from_slice(header.as_slice());
@@ -1252,4 +1255,141 @@ mod test {
         ];
         assert_eq!(hostent, expected_bytes)
     }
+    
+    // Test data for the below harvested using socat between nscd and docker container
+
+    #[test]
+    fn test_handle_getservbyport_port() {
+        // getent service 23 (telnet)
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETSERVBYPORT,
+            key: &[0x35,0x38,0x38,0x38,0x2f,0x00],
+        };
+        let expected_bytes: Vec<u8> = vec![
+            0x02,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x07,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x17,0x00,0x00,0x74,0x65,0x6c,0x6e,0x65,0x74,0x00,0x74,0x63,0x70,0x00,
+        ];
+        let result = handle_request(&test_logger(), &Config::default(), &request).expect("should handle request with no error");
+
+        assert_eq!(result, expected_bytes);
+    }
+
+    #[test]
+    fn test_handle_getservbyport_port_proto() {
+        // getent services 49/udp (tacacs)
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETSERVBYPORT,
+            key: &[0x31,0x32,0x35,0x34,0x34,0x2f,0x75,0x64,0x70,0x00],
+        };
+        let expected_bytes: Vec<u8> = vec![
+            0x02,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x07,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x31,0x00,0x00,0x74,0x61,0x63,0x61,0x63,0x73,0x00,0x75,0x64,0x70,0x00
+        ];
+        let result = handle_request(&test_logger(), &Config::default(), &request).expect("should handle request with no error");
+        assert_eq!(result, expected_bytes);
+    }
+
+    #[test]
+    fn test_handle_getservbyname_name() {
+        // getent service domain
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETSERVBYNAME,
+            key: &[0x64,0x6f,0x6d,0x61,0x69,0x6e,0x2f,0x75,0x64,0x70,0x00],
+        };
+        let expected_bytes: Vec<u8> = vec![
+            0x02,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x07,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x35,0x00,0x00,0x64,0x6f,0x6d,0x61,0x69,0x6e,0x00,0x75,0x64,0x70,0x00
+        ];
+        let result = handle_request(&test_logger(), &Config::default(), &request).expect("should handle request with no error");
+
+        assert_eq!(result, expected_bytes);
+    }
+    #[test]
+    fn test_handle_getservbyname_name_proto() {
+        // getent service domain/udp
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETSERVBYNAME,
+            key: &[0x64,0x6f,0x6d,0x61,0x69,0x6e,0x2f,0x00],
+        };
+        let expected_bytes: Vec<u8> = vec![
+            0x02,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x07,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x35,0x00,0x00,0x64,0x6f,0x6d,0x61,0x69,0x6e,0x00,0x74,0x63,0x70,0x00
+        ];
+        let result = handle_request(&test_logger(), &Config::default(), &request).expect("should handle request with no error");
+
+        assert_eq!(result, expected_bytes);
+    }
+
+    #[test]
+    fn test_handle_getservbyport_port_proto_aliases() {
+        // getent service 113/tcp
+        // Returns 3 aliases 
+        // auth                  113/tcp authentication tap ident
+        let request = protocol::Request {
+            ty: protocol::RequestType::GETSERVBYPORT,
+            key: &[0x32,0x38,0x39,0x32,0x38,0x2f,0x74,0x63,0x70,0x00],
+        };
+        let expected_bytes: Vec<u8> = vec![
+            0x02,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x05,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x00,0x71,0x00,0x00,0x61,0x75,0x74,0x68,0x00,0x74,0x63,0x70,0x00,0x0f,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x06,0x00,0x00,0x00,0x61,0x75,0x74,0x68,0x65,0x6e,0x74,0x69,0x63,0x61,0x74,0x69,0x6f,0x6e,0x00,0x74,0x61,0x70,0x00,0x69,0x64,0x65,0x6e,0x74,0x00        ];
+        let result = handle_request(&test_logger(), &Config::default(), &request).expect("should handle request with no error");
+
+        assert_eq!(result, expected_bytes);
+    }
+
+    // unit tests of netgroup are a bit harder without /etc/netgroup data
+
+    #[test]
+    fn test_netgroup_serialization() {
+        // validate netgroup response serialization
+        let netgroupents = serialize_netgroup(vec![
+            NixNetgroup { 
+            host: Some(CString::new(b"host1".to_vec()).unwrap()),
+            user: Some(CString::new(b"user1".to_vec()).unwrap()),
+            domain: Some(CString::new(b"domain1".to_vec()).unwrap()),
+        },
+        NixNetgroup { 
+            host: Some(CString::new(b"host2".to_vec()).unwrap()),
+            user: Some(CString::new(b"user2".to_vec()).unwrap()),
+            domain: Some(CString::new(b"domain2".to_vec()).unwrap()),
+        },
+        ]).expect("should serialize");
+
+        let expected_bytes: Vec<u8> = vec![
+            0x02,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x28,0x00,0x00,0x00,0x68,0x6f,0x73,0x74,0x31,0x00,0x75,0x73,0x65,0x72,0x31,0x00,0x64,0x6f,0x6d,0x61,0x69,0x6e,0x31,0x00,0x68,0x6f,0x73,0x74,0x32,0x00,0x75,0x73,0x65,0x72,0x32,0x00,0x64,0x6f,0x6d,0x61,0x69,0x6e,0x32,0x00
+        ];
+        assert_eq!(netgroupents, expected_bytes)
+    }
+
+    #[test]
+    fn test_handle_in_netgr_request() {
+        // innetgr is the only request with multiple values delimited by NUL
+        // ensure from_bytes works
+        let in_netgroup_req = InNetGroup::from_bytes(&[
+            0x6e,0x65,0x74,0x67,0x72,0x6f,0x75,0x70,0x00,0x01,0x68,0x6f,0x73,0x74,0x31,0x00,0x01,0x75,0x73,0x65,0x72,0x31,0x00,0x01,0x64,0x6f,0x6d,0x61,0x69,0x6e,0x31,0x00
+            ]
+        ).expect("should serialize");
+        let expected = InNetGroup{
+            netgroup:String::from("netgroup"),
+            host:Some(String::from("host1")),
+            user:Some(String::from("user1")),
+            domain:Some(String::from("domain1")),
+        };
+
+        assert_eq!(in_netgroup_req, expected);
+    }
+
+    #[test]
+    fn test_innetgroup_serialization_in_group() {
+        // validate innetgr serialization
+        let in_netgroup = serialize_innetgr(true).expect("should serialize");
+        let expected_bytes: Vec<u8> = vec![
+            0x02,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x00
+        ];
+        assert_eq!(in_netgroup, expected_bytes)
+    }
+    
+    #[test]
+    fn test_innetgroup_serialization_not_in_group() {
+        // validate innetgr serialization
+        let in_netgroup = serialize_innetgr(false).expect("should serialize");
+        let expected_bytes: Vec<u8> = vec![];
+        assert_eq!(in_netgroup, expected_bytes)
+    }
+
 }
