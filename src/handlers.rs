@@ -112,7 +112,7 @@ fn serv_entry_to_nix_service(serv_entry: *const servent) -> Result<Option<NixSer
         name,
         proto,
         aliases: alias_strings,
-        port: serv.s_port as i32,
+        port: serv.s_port
     }))
 }
 
@@ -196,8 +196,6 @@ impl ServiceWithPort {
 
 impl InNetGroup {
     pub fn from_bytes(bytes: &[u8]) -> Result<InNetGroup> {
-        let netgroup: String;
-
         let mut args: [Option<String>; 3] = [None, None, None];
 
         /*
@@ -211,7 +209,7 @@ impl InNetGroup {
         let parts: Vec<&[u8]> = bytes.split(|&b| b == 0).collect();
 
         // netgroup is always present
-        netgroup = if let Ok(string) = std::str::from_utf8(parts[0]) {
+        let netgroup = if let Ok(string) = std::str::from_utf8(parts[0]) {
             string.to_string()
         } else {
             anyhow::bail!("Parsing of netgroup failed");
@@ -221,7 +219,7 @@ impl InNetGroup {
         // if len 0, just a NUL char
         // else, SOH char followed by arg, skip element 0 when making the string
         for idx in 0..3 {
-            if parts[idx + 1].len() > 0 {
+            if !parts[idx + 1].is_empty() {
                 args[idx] = if let Ok(string) = std::str::from_utf8(&parts[idx + 1][1..]) {
                     Some(string.to_string())
                 } else {
@@ -231,7 +229,7 @@ impl InNetGroup {
         }
 
         Ok(InNetGroup {
-            netgroup: netgroup,
+            netgroup,
             host: args[0].clone(),
             user: args[1].clone(),
             domain: args[2].clone(),
@@ -716,11 +714,11 @@ fn serialize_netgroup(netgroups: Vec<NixNetgroup>) -> Result<Vec<u8>> {
         version: protocol::VERSION,
         found: 1,
         nresults: netgroups.len().try_into()?,
-        result_len: result_len,
+        result_len,
     };
     // TODO - this should if netgroups.len() ==0 return [].. at the top.
     // not sure of the syntax to early return
-    if netgroups.len() > 0 {
+    if !netgroups.is_empty()  {
         result.extend_from_slice(header.as_slice());
     }
 
