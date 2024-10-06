@@ -1,0 +1,11 @@
+#!/bin/sh -e
+#DEBHELPER#
+
+if ! getent group nsncd >/dev/null 2>&1; then
+    addgroup --system --quiet nsncd
+fi
+if ! getent passwd nsncd >/dev/null 2>&1; then
+    adduser --system --quiet --ingroup nsncd		\
+	    --no-create-home --home /nonexistent	\
+	    nsncd
+fi
