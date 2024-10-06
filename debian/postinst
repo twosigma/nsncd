@@ -1,0 +1,34 @@
+#!/bin/sh -e
+
+set -e
+
+
+case "$1" in
+configure)
+	# 1. Create a system group if it doesn't exist
+	if ! getent group "$_GROUPNAME" >/dev/null; then
+		addgroup --system --quiet _nscd
+	fi
+
+	# 2. Create the system user belonging to that group
+	#    adduser implicitly handles existence checks and does not fail if it already exists.
+	adduser --system \
+		--ingroup _nscd \
+		--home /nonexistent \
+		--no-create-home \
+		--disabled-login \
+		_nscd
+	;;
+
+abort-upgrade | abort-remove | abort-deconfigure) ;;
+
+\
+	*)
+	echo "postinst called with unknown argument \`$1'" >&2
+	exit 1
+	;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,28 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    purge)
+        # Remove the system user if deluser exists and the user exists
+        if [ -x "$(command -v deluser)" ] && getent passwd_or_username_check >/dev/null; then
+            # Replace 'myuser' with your actual system username
+            deluser --quiet --system _nscd || true
+        fi
+
+        # Remove the system group if delgroup exists and the group exists
+        if [ -x "$(command -v delgroup)" ] && getent group mygroup >/dev/null; then
+            delgroup --quiet --system --only-if-empty _nscd || true
+        fi
+        ;;
+
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+exit 0
