@@ -222,7 +222,7 @@ jobs:
 
   run-ci-debian-13:
     runs-on: ubuntu-latest
-    container: debian:13
+    container: debian:trixie
     needs: [build-debian-package-13]
 
     steps:
