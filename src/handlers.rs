@@ -41,7 +41,7 @@ use super::protocol::RequestType;
 use nix::libc::{c_char, c_int, getservbyname, getservbyport, servent, size_t};
 
 mod nixish;
-use nixish::{NixNetgroup, NixService};
+use nixish::{Netgroup, Service};
 
 // these functions are not available in the nix::libc crate
 extern "C" {
@@ -84,37 +84,6 @@ pub struct InNetGroup {
     pub domain: Option<String>,
 }
 
-fn serv_entry_to_nix_service(serv_entry: *const servent) -> Result<Option<NixService>> {
-    if serv_entry.is_null() {
-        return Ok(None);
-    }
-
-    let serv = unsafe { *serv_entry };
-
-    if serv.s_name.is_null() || serv.s_proto.is_null() {
-        anyhow::bail!("Service name or proto are null");
-    }
-    let name = unsafe { CStr::from_ptr(serv.s_name) }.to_owned();
-    let proto = unsafe { CStr::from_ptr(serv.s_proto) }.to_owned();
-
-    let mut alias_ptr = serv.s_aliases;
-    let mut alias_strings: Vec<CString> = vec![];
-
-    unsafe {
-        while !(*alias_ptr).is_null() {
-            alias_strings.push(CStr::from_ptr(*alias_ptr).to_owned());
-            alias_ptr = alias_ptr.offset(1);
-        }
-    }
-
-    Ok(Some(NixService {
-        name,
-        proto,
-        aliases: alias_strings,
-        port: serv.s_port
-    }))
-}
-
 impl FromStr for ServiceWithName {
     type Err = String;
 
@@ -137,7 +106,7 @@ impl FromStr for ServiceWithName {
 }
 
 impl ServiceWithName {
-    fn lookup(&self) -> Result<Option<NixService>> {
+    fn lookup(&self) -> Result<Option<Service>> {
         let serv_entry: *const servent;
 
         if let Some(protocol) = &self.proto {
@@ -152,7 +121,12 @@ impl ServiceWithName {
                 unsafe { getservbyname(self.service.as_ptr() as *const c_char, std::ptr::null()) };
         }
 
-        serv_entry_to_nix_service(serv_entry)
+        if serv_entry.is_null() {
+            Ok(None)
+        } else {
+            let service = unsafe { *serv_entry }.try_into()?;
+            Ok(Some(service))
+        }
     }
 }
 
@@ -180,7 +154,7 @@ impl FromStr for ServiceWithPort {
 }
 
 impl ServiceWithPort {
-    fn lookup(&self) -> Result<Option<NixService>> {
+    fn lookup(&self) -> Result<Option<Service>> {
         let serv_entry: *const servent;
         if let Some(protocol) = &self.proto {
             serv_entry =
@@ -188,7 +162,13 @@ impl ServiceWithPort {
         } else {
             serv_entry = unsafe { getservbyport(self.port as c_int, std::ptr::null()) };
         }
-        serv_entry_to_nix_service(serv_entry)
+
+        if serv_entry.is_null() {
+            Ok(None)
+        } else {
+            let service = unsafe { *serv_entry }.try_into()?;
+            Ok(Some(service))
+        }
     }
 }
 
@@ -234,19 +214,23 @@ impl InNetGroup {
             domain: args[2].clone(),
         })
     }
+
     fn lookup(&self) -> Result<bool> {
-        let mut host_c: *const c_char = std::ptr::null();
-        let mut user_c: *const c_char = std::ptr::null();
-        let mut domain_c: *const c_char = std::ptr::null();
-        if let Some(host) = &self.host {
-            host_c = host.as_ptr() as *const c_char;
-        }
-        if let Some(user) = &self.user {
-            user_c = user.as_ptr() as *const c_char;
-        }
-        if let Some(domain) = &self.domain {
-            domain_c = domain.as_ptr() as *const c_char;
-        }
+        let host_c: *const c_char = if let Some(host) = &self.host {
+            host.as_ptr() as *const c_char
+        } else {
+            std::ptr::null()
+        };
+        let user_c: *const c_char = if let Some(user) = &self.user {
+            user.as_ptr() as *const c_char
+        } else {
+            std::ptr::null()
+        };
+        let domain_c: *const c_char = if let Some(domain) = &self.domain {
+            domain.as_ptr() as *const c_char
+        } else {
+            std::ptr::null()
+        };
         let ret = unsafe {
             innetgr(
                 self.netgroup.as_ptr() as *const c_char,
@@ -270,8 +254,8 @@ impl FromStr for NetgroupWithName {
 }
 
 impl NetgroupWithName {
-    fn lookup(&self) -> Result<Vec<NixNetgroup>> {
-        let mut results: Vec<NixNetgroup> = vec![];
+    fn lookup(&self) -> Result<Vec<Netgroup>> {
+        let mut results: Vec<Netgroup> = vec![];
 
         if unsafe { setnetgrent(self.name.as_ptr() as *const c_char) } != 1 {
             anyhow::bail!("Error: Could not open netgroup {}", self.name);
@@ -310,7 +294,7 @@ impl NetgroupWithName {
                     None
                 };
 
-                results.push(NixNetgroup {
+                results.push(Netgroup {
                     host: host_str,
                     user: user_str,
                     domain: domain_str,
@@ -680,7 +664,7 @@ fn serialize_innetgr(innetgr: bool) -> Result<Vec<u8>> {
 }
 
 //Take a list of NixNetGroup objects and serialize to send back
-fn serialize_netgroup(netgroups: Vec<NixNetgroup>) -> Result<Vec<u8>> {
+fn serialize_netgroup(netgroups: Vec<Netgroup>) -> Result<Vec<u8>> {
     let mut result = vec![];
 
     // first we need to count the size of the return data to populate the header
@@ -748,7 +732,7 @@ fn serialize_netgroup(netgroups: Vec<NixNetgroup>) -> Result<Vec<u8>> {
 
 /// Send a service entry back to the client, or a response indicating the
 /// lookup found no such service.
-fn serialize_service(service: Option<NixService>) -> Result<Vec<u8>> {
+fn serialize_service(service: Option<Service>) -> Result<Vec<u8>> {
     let mut result = vec![];
 
     if let Some(data) = service {
@@ -1338,16 +1322,16 @@ mod test {
     fn test_netgroup_serialization() {
         // validate netgroup response serialization
         let netgroupents = serialize_netgroup(vec![
-            NixNetgroup { 
-            host: Some(CString::new(b"host1".to_vec()).unwrap()),
-            user: Some(CString::new(b"user1".to_vec()).unwrap()),
-            domain: Some(CString::new(b"domain1".to_vec()).unwrap()),
-        },
-        NixNetgroup { 
-            host: Some(CString::new(b"host2".to_vec()).unwrap()),
-            user: Some(CString::new(b"user2".to_vec()).unwrap()),
-            domain: Some(CString::new(b"domain2".to_vec()).unwrap()),
-        },
+            Netgroup {
+                host: Some(CString::new(b"host1".to_vec()).unwrap()),
+                user: Some(CString::new(b"user1".to_vec()).unwrap()),
+                domain: Some(CString::new(b"domain1".to_vec()).unwrap()),
+            },
+            Netgroup {
+                host: Some(CString::new(b"host2".to_vec()).unwrap()),
+                user: Some(CString::new(b"user2".to_vec()).unwrap()),
+                domain: Some(CString::new(b"domain2".to_vec()).unwrap()),
+            },
         ]).expect("should serialize");
 
         let expected_bytes: Vec<u8> = vec![
