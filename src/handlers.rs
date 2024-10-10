@@ -29,6 +29,8 @@ use slog::{debug, error, Logger};
 use std::mem::size_of;
 use std::str::FromStr;
 use std::num::ParseIntError;
+use std::mem;
+use std::ptr;
 
 use crate::ffi::{gethostbyaddr_r, gethostbyname2_r, Hostent, LibcIp, HostentError};
 use crate::protocol::{AiResponse, AiResponseHeader};
@@ -38,7 +40,7 @@ use super::protocol;
 use super::protocol::RequestType;
 
 
-use nix::libc::{c_char, c_int, getservbyname, getservbyport, servent, size_t};
+use nix::libc::{c_char, c_int, servent, size_t};
 
 mod nixish;
 use nixish::{Netgroup, Service};
@@ -59,6 +61,22 @@ extern "C" {
         host: *const c_char,
         user: *const c_char,
         domain: *const c_char,
+    ) -> c_int;
+    fn getservbyname_r(
+        name: *const c_char,
+        proto: *const c_char,
+        result_buf: *mut servent,
+        buf: *mut c_char,
+        buflen: size_t,
+        result: *mut *mut servent,
+    ) -> c_int;
+    fn getservbyport_r(
+        port: c_int,
+        proto: *const c_char,
+        result_buf: *mut servent,
+        buf: *mut c_char,
+        buflen: size_t,
+        result: *mut *mut servent,
     ) -> c_int;
 }
 #[derive(Debug)]
@@ -107,25 +125,30 @@ impl FromStr for ServiceWithName {
 
 impl ServiceWithName {
     fn lookup(&self) -> Result<Option<Service>> {
-        let serv_entry: *const servent;
+        let service_cstr = CString::new(self.service.as_str())?;
+        let proto_cstr = self.proto.as_ref().map(|s| CString::new(s.as_str()).unwrap());
+        let service_ptr=service_cstr.as_ptr();
+        let proto_ptr = proto_cstr.as_ref().map_or(ptr::null(), |s| s.as_ptr());
 
-        if let Some(protocol) = &self.proto {
-            serv_entry = unsafe {
-                getservbyname(
-                    self.service.as_ptr() as *const c_char,
-                    protocol.as_ptr() as *const c_char,
-                )
-            };
-        } else {
-            serv_entry =
-                unsafe { getservbyname(self.service.as_ptr() as *const c_char, std::ptr::null()) };
-        }
+        let mut result_buf: servent = unsafe { mem::zeroed() };
+        let mut buffer: Vec<c_char> = vec![0; 1024];
+        let mut result: *mut servent = ptr::null_mut();
 
-        if serv_entry.is_null() {
-            Ok(None)
-        } else {
-            let service = unsafe { *serv_entry }.try_into()?;
+        let ret = unsafe {
+            getservbyname_r(
+                service_ptr,
+                proto_ptr, 
+                &mut result_buf, 
+                buffer.as_mut_ptr(), 
+                buffer.len(), 
+                & mut result
+            )
+        };
+        if ret == 0 && !result.is_null() {
+            let service: Service = unsafe { *result }.try_into()?;
             Ok(Some(service))
+        } else {
+            Ok(None)
         }
     }
 }
@@ -155,19 +178,28 @@ impl FromStr for ServiceWithPort {
 
 impl ServiceWithPort {
     fn lookup(&self) -> Result<Option<Service>> {
-        let serv_entry: *const servent;
-        if let Some(protocol) = &self.proto {
-            serv_entry =
-                unsafe { getservbyport(self.port as c_int, protocol.as_ptr() as *const c_char) };
-        } else {
-            serv_entry = unsafe { getservbyport(self.port as c_int, std::ptr::null()) };
-        }
+        let proto_cstr = self.proto.as_ref().map(|s| CString::new(s.as_str()).unwrap());
+        let proto_ptr = proto_cstr.as_ref().map_or(ptr::null(), |s| s.as_ptr());
 
-        if serv_entry.is_null() {
-            Ok(None)
-        } else {
-            let service = unsafe { *serv_entry }.try_into()?;
+        let mut result_buf: servent = unsafe { mem::zeroed() };
+        let mut buffer: Vec<c_char> = vec![0; 1024];
+        let mut result: *mut servent = ptr::null_mut();
+
+        let ret = unsafe {
+            getservbyport_r(
+                self.port as c_int,
+                proto_ptr, 
+                &mut result_buf, 
+                buffer.as_mut_ptr(), 
+                buffer.len(), 
+                & mut result
+            )
+        };
+        if ret == 0 && !result.is_null() {
+            let service: Service = unsafe { *result }.try_into()?;
             Ok(Some(service))
+        } else {
+            Ok(None)
         }
     }
 }
