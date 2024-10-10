@@ -50,6 +50,8 @@ not respond to the requests related to that database.
 Some request types may be ignored by the implementation (e.g. the ones that
 request a file descriptor pointing into internal cache structures).
 
+`NSNCD_SOCKET_PATH` may be set to override the default location of the socket.
+
 ## Bug Reports and Contributions
 
 Please create GitHub issues and/or pull requests.

@@ -264,6 +264,70 @@ impl HstResponseHeader {
     }
 }
 
+
+
+/* Structure send in reply to innetgroup query.  Note that this struct is
+sent also if the service is disabled or there is no record found.  */
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct InNetgroupResponseHeader {
+    pub version: c_int,
+    pub found: c_int,
+    pub result: c_int,
+}
+
+impl InNetgroupResponseHeader {
+    /// Serialize the header to bytes.
+    ///
+    /// The C implementations of nscd just take the address of the struct, so
+    /// we will too, to make it easy to convince ourselves it's correct.
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
+
+/* Structure send in reply to service query.  Note that this struct is
+sent also if the service is disabled or there is no record found.  */
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ServResponseHeader {
+    pub version: c_int,
+    pub found: c_int,
+    pub s_name_len: c_int,
+    pub s_proto_len: c_int,
+    pub s_aliases_cnt: c_int,
+    pub s_port: c_int,
+}
+
+/* Structure send in reply to netgroup query.  Note that this struct is
+sent also if the service is disabled or there is no record found.  */
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct NetgroupResponseHeader {
+    pub version: c_int,
+    pub found: c_int,
+    pub nresults: c_int,
+    pub result_len: c_int,
+}
+
+impl ServResponseHeader {
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
+impl NetgroupResponseHeader {
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
+
 #[cfg(test)]
 mod test {
     use super::*;
