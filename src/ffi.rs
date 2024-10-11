@@ -47,7 +47,7 @@ pub fn disable_internal_nscd() {
         if !sym_ptr.is_null() {
             let __nss_disable_nscd = mem::transmute::<
                 *mut libc::c_void,
-                extern "C" fn(hell: unsafe extern "C" fn(size_t, *mut libc::c_void))
+                extern "C" fn(hell: unsafe extern "C" fn(size_t, *mut libc::c_void)),
             >(sym_ptr);
             __nss_disable_nscd(do_nothing);
         }
@@ -131,21 +131,30 @@ impl Hostent {
 #[derive(Debug)]
 pub enum HostentError {
     HError(i32),
-    Other(anyhow::Error)
+    Other(anyhow::Error),
 }
 
 fn from_libc_hostent(value: libc::hostent) -> Result<Hostent, HostentError> {
     // validate value.h_addtype, and bail out if it's unsupported
     if value.h_addrtype != libc::AF_INET && value.h_addrtype != libc::AF_INET6 {
-        return Err(HostentError::Other(anyhow!("unsupported address type: {}", value.h_addrtype)));
+        return Err(HostentError::Other(anyhow!(
+            "unsupported address type: {}",
+            value.h_addrtype
+        )));
     }
 
     // ensure value.h_length matches what we know from this address family
     if value.h_addrtype == libc::AF_INET && value.h_length != 4 {
-        return Err(HostentError::Other(anyhow!("unsupported h_length for AF_INET: {}", value.h_length)));
+        return Err(HostentError::Other(anyhow!(
+            "unsupported h_length for AF_INET: {}",
+            value.h_length
+        )));
     }
     if value.h_addrtype == libc::AF_INET6 && value.h_length != 16 {
-        return Err(HostentError::Other(anyhow!("unsupported h_length for AF_INET6: {}", value.h_length)));
+        return Err(HostentError::Other(anyhow!(
+            "unsupported h_length for AF_INET6: {}",
+            value.h_length
+        )));
     }
 
     // construct the name field.
@@ -301,12 +310,10 @@ pub fn gethostbyname2_r(name: String, af: libc::c_int) -> Result<Hostent, Hosten
 fn test_gethostbyname2_r() {
     disable_internal_nscd();
 
-    let result =
-        gethostbyname2_r("localhost.".to_string(), libc::AF_INET);
+    let result = gethostbyname2_r("localhost.".to_string(), libc::AF_INET);
     result.expect("Should resolve IPv4 localhost.");
 
-    let result =
-        gethostbyname2_r("localhost.".to_string(), libc::AF_INET6);
+    let result = gethostbyname2_r("localhost.".to_string(), libc::AF_INET6);
     result.expect("Should resolve IPv6 localhost.");
 }
 

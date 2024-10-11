@@ -264,8 +264,6 @@ impl HstResponseHeader {
     }
 }
 
-
-
 /* Structure send in reply to innetgroup query.  Note that this struct is
 sent also if the service is disabled or there is no record found.  */
 #[repr(C)]
@@ -286,7 +284,6 @@ impl InNetgroupResponseHeader {
         unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
     }
 }
-
 
 /* Structure send in reply to service query.  Note that this struct is
 sent also if the service is disabled or there is no record found.  */
@@ -326,7 +323,6 @@ impl NetgroupResponseHeader {
         unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
     }
 }
-
 
 #[cfg(test)]
 mod test {
