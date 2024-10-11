@@ -1,5 +1,8 @@
 use nix::libc::{c_int, servent};
-use std::{convert::TryFrom, ffi::{CStr, CString}};
+use std::{
+    convert::TryFrom,
+    ffi::{CStr, CString},
+};
 
 //nix::unistd does not offer Service or Netgroup functionality
 //Duplicate from the group object
@@ -36,7 +39,7 @@ impl TryFrom<servent> for Service {
             name,
             proto,
             aliases: alias_strings,
-            port: serv.s_port
+            port: serv.s_port,
         })
     }
 }

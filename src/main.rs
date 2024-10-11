@@ -82,7 +82,7 @@ fn main() -> Result<()> {
     let socket_path =
         env::var("NSNCD_SOCKET_PATH").unwrap_or_else(|_| DEFAULT_SOCKET_PATH.to_string());
     let path = Path::new(&socket_path);
-    
+
     slog::info!(logger, "started";
         "path" => ?path,
         "config" => ?config,
