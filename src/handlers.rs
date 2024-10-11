@@ -47,6 +47,24 @@ use nixish::{Netgroup, Service};
 
 const ERANGE: i32 = 34;
 
+fn call_with_erange_handling<F>(buf: &mut Vec<c_char>, mut f: F) -> i32
+where
+    F: FnMut(&mut Vec<c_char>) -> i32,
+{
+    loop {
+        let ret = f(buf);
+        if ret == ERANGE {
+            if buf.len() > 10 << 20 {
+                // Let's not let this get much bigger than 10MB
+                return ret;
+            }
+            buf.resize(buf.len() * 2, 0 as c_char);
+        } else {
+            return ret;
+        }
+    }
+}
+
 // these functions are not available in the nix::libc crate
 extern "C" {
     fn setnetgrent(netgroup: *const c_char) -> i32;
@@ -137,31 +155,26 @@ impl ServiceWithName {
         let mut buffer: Vec<c_char> = vec![0; 1024];
         let mut result: *mut servent = ptr::null_mut();
 
-        loop {
-            let ret = unsafe {
-                getservbyname_r(
-                    service_name.as_ptr(),
-                    proto.as_ref().map_or(ptr::null(), |p| p.as_ptr()),
-                    &mut result_buf,
-                    buffer.as_mut_ptr(),
-                    buffer.len(),
-                    &mut result,
-                )
-            };
-            // lookup was successful
-            if ret == 0 {
-                if !result.is_null() {
-                    let service: Service = unsafe { *result }.try_into()?;
-                    return Ok(Some(service));
-                } else {
-                    return Ok(None);
-                };
-            } else if ret == ERANGE {
-                buffer.resize(buffer.len() * 2, 0 as c_char);
-                continue;
+        let ret = call_with_erange_handling(&mut buffer, |buffer| unsafe {
+            getservbyname_r(
+                service_name.as_ptr(),
+                proto.as_ref().map_or(ptr::null(), |p| p.as_ptr()),
+                &mut result_buf,
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut result,
+            )
+        });
+        // lookup was successful
+        if ret == 0 {
+            if !result.is_null() {
+                let service: Service = unsafe { *result }.try_into()?;
+                Ok(Some(service))
             } else {
-                anyhow::bail!("Error: getservbyname_r failed with code {}", ret);
+                Ok(None)
             }
+        } else {
+            anyhow::bail!("Error: getservbyname_r failed with code {}", ret);
         }
     }
 }
@@ -200,30 +213,25 @@ impl ServiceWithPort {
         let mut buffer: Vec<c_char> = vec![0; 1024];
         let mut result: *mut servent = ptr::null_mut();
 
-        loop {
-            let ret = unsafe {
-                getservbyport_r(
-                    self.port as c_int,
-                    proto.as_ref().map_or(ptr::null(), |p| p.as_ptr()),
-                    &mut result_buf,
-                    buffer.as_mut_ptr(),
-                    buffer.len(),
-                    &mut result,
-                )
-            };
-            if ret == 0 {
-                if !result.is_null() {
-                    let service: Service = unsafe { *result }.try_into()?;
-                    return Ok(Some(service));
-                } else {
-                    return Ok(None);
-                };
-            } else if ret == ERANGE {
-                buffer.resize(buffer.len() * 2, 0 as c_char);
-                continue;
+        let ret = call_with_erange_handling(&mut buffer, |buffer| unsafe {
+            getservbyport_r(
+                self.port as c_int,
+                proto.as_ref().map_or(ptr::null(), |p| p.as_ptr()),
+                &mut result_buf,
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut result,
+            )
+        });
+        if ret == 0 {
+            if !result.is_null() {
+                let service: Service = unsafe { *result }.try_into()?;
+                Ok(Some(service))
             } else {
-                anyhow::bail!("Error: getservbyport_r failed with code {}", ret);
+                Ok(None)
             }
+        } else {
+            anyhow::bail!("Error: getservbyport_r failed with code {}", ret);
         }
     }
 }
@@ -343,7 +351,7 @@ impl NetgroupWithName {
         let mut domain: *mut c_char = std::ptr::null_mut();
 
         loop {
-            let ret = unsafe {
+            let ret = call_with_erange_handling(&mut buffer, |buffer| unsafe {
                 getnetgrent_r(
                     &mut host,
                     &mut user,
@@ -351,8 +359,7 @@ impl NetgroupWithName {
                     buffer.as_mut_ptr(),
                     buffer.len() as size_t,
                 )
-            };
-
+            });
             if ret == 1 {
                 let host_str = if !host.is_null() {
                     Some(unsafe { CStr::from_ptr(host) }.to_owned())
@@ -380,11 +387,6 @@ impl NetgroupWithName {
             } else if ret == 0 {
                 unsafe { endnetgrent() };
                 break;
-            } else if ret == ERANGE {
-                //TODO - include error number libs
-                // Double the buffer size and retry
-                buffer.resize(buffer.len() * 2, 0 as c_char);
-                continue;
             } else {
                 // Handle other errors
                 anyhow::bail!("Error: getnetgrent_r failed with code {}", ret);
