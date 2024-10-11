@@ -31,6 +31,7 @@ use std::str::FromStr;
 use std::num::ParseIntError;
 use std::mem;
 use std::ptr;
+use std::sync::{LazyLock,Mutex};
 
 use crate::ffi::{gethostbyaddr_r, gethostbyname2_r, Hostent, LibcIp, HostentError};
 use crate::protocol::{AiResponse, AiResponseHeader};
@@ -312,11 +313,32 @@ impl FromStr for NetgroupWithName {
     }
 }
 
+//Required for use of setnetgrent in multi threaded apps
+//https://docs.oracle.com/cd/E88353_01/html/E37843/setnetgrent-3c.html
+
+//Note that while setnetgrent() and endnetgrent() are safe for use in multi-threaded applications, the effect of each is process-wide. 
+//Calling setnetgrent() resets the enumeration position for all threads. 
+//If multiple threads interleave calls to getnetgrent_r() each will enumerate a disjoint subset of the netgroup. 
+//Thus the effective use of these functions in multi-threaded applications may require coordination by the caller.
+
+//Make a Mutex to ensure that setnetgrent and getnetgrent_r are called in sequence
+static SETNETGRENT_LOCK: LazyLock<Mutex<u8>> = LazyLock::new(|| {
+    Mutex::new(0)
+});
 impl NetgroupWithName {
     fn lookup(&self) -> Result<Vec<Netgroup>> {
         let mut results: Vec<Netgroup> = vec![];
 
         let netgroup_name = CString::new(self.name.clone())?;
+
+        // if the mutex thinks it was poisoned (e.g by a thread panicing)
+        // that thread is not running, thus we can take the lock
+        // There is no need to explicitly unlock, this happens automatically
+        // at the conclusion of the function
+        let _guard = match SETNETGRENT_LOCK.lock(){
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
 
         if unsafe { setnetgrent(netgroup_name.as_ptr() as *const c_char) } != 1 {
             anyhow::bail!("Error: Could not open netgroup {}", self.name);
