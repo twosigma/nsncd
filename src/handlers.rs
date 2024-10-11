@@ -29,6 +29,9 @@ use slog::{debug, error, Logger};
 use std::mem::size_of;
 use std::str::FromStr;
 use std::num::ParseIntError;
+use std::mem;
+use std::ptr;
+use std::sync::{LazyLock,Mutex};
 
 use crate::ffi::{gethostbyaddr_r, gethostbyname2_r, Hostent, LibcIp, HostentError};
 use crate::protocol::{AiResponse, AiResponseHeader};
@@ -38,10 +41,12 @@ use super::protocol;
 use super::protocol::RequestType;
 
 
-use nix::libc::{c_char, c_int, getservbyname, getservbyport, servent, size_t};
+use nix::libc::{c_char, c_int, servent, size_t};
 
 mod nixish;
 use nixish::{Netgroup, Service};
+
+const ERANGE: i32 = 34;
 
 // these functions are not available in the nix::libc crate
 extern "C" {
@@ -59,6 +64,22 @@ extern "C" {
         host: *const c_char,
         user: *const c_char,
         domain: *const c_char,
+    ) -> c_int;
+    fn getservbyname_r(
+        name: *const c_char,
+        proto: *const c_char,
+        result_buf: *mut servent,
+        buf: *mut c_char,
+        buflen: size_t,
+        result: *mut *mut servent,
+    ) -> c_int;
+    fn getservbyport_r(
+        port: c_int,
+        proto: *const c_char,
+        result_buf: *mut servent,
+        buf: *mut c_char,
+        buflen: size_t,
+        result: *mut *mut servent,
     ) -> c_int;
 }
 #[derive(Debug)]
@@ -107,25 +128,43 @@ impl FromStr for ServiceWithName {
 
 impl ServiceWithName {
     fn lookup(&self) -> Result<Option<Service>> {
-        let serv_entry: *const servent;
 
-        if let Some(protocol) = &self.proto {
-            serv_entry = unsafe {
-                getservbyname(
-                    self.service.as_ptr() as *const c_char,
-                    protocol.as_ptr() as *const c_char,
+        let service_name = CString::new(self.service.clone())?;
+        let proto = match &self.proto {
+            Some(p) => Some(CString::new(p.clone())?),
+            None => None,
+        };
+
+
+        let mut result_buf: servent = unsafe { mem::zeroed() };
+        let mut buffer: Vec<c_char> = vec![0; 1024];
+        let mut result: *mut servent = ptr::null_mut();
+
+        loop {
+            let ret = unsafe {
+                getservbyname_r(
+                    service_name.as_ptr(),
+                    proto.as_ref().map_or(ptr::null(), |p| p.as_ptr()), 
+                    &mut result_buf, 
+                    buffer.as_mut_ptr(), 
+                    buffer.len(), 
+                    & mut result
                 )
             };
-        } else {
-            serv_entry =
-                unsafe { getservbyname(self.service.as_ptr() as *const c_char, std::ptr::null()) };
-        }
-
-        if serv_entry.is_null() {
-            Ok(None)
-        } else {
-            let service = unsafe { *serv_entry }.try_into()?;
-            Ok(Some(service))
+            // lookup was successful
+            if ret == 0 {
+                if !result.is_null(){
+                    let service: Service = unsafe { *result }.try_into()?;
+                    return Ok(Some(service));
+                }else{
+                    return Ok(None)
+                };
+            }  else if ret == ERANGE {
+                buffer.resize(buffer.len() * 2, 0 as c_char);
+                continue;
+            }else {
+                anyhow::bail!("Error: getservbyname_r failed with code {}", ret);              
+            }
         }
     }
 }
@@ -155,19 +194,40 @@ impl FromStr for ServiceWithPort {
 
 impl ServiceWithPort {
     fn lookup(&self) -> Result<Option<Service>> {
-        let serv_entry: *const servent;
-        if let Some(protocol) = &self.proto {
-            serv_entry =
-                unsafe { getservbyport(self.port as c_int, protocol.as_ptr() as *const c_char) };
-        } else {
-            serv_entry = unsafe { getservbyport(self.port as c_int, std::ptr::null()) };
-        }
+        let proto = match &self.proto {
+            Some(p) => Some(CString::new(p.clone())?),
+            None => None,
+        };
 
-        if serv_entry.is_null() {
-            Ok(None)
-        } else {
-            let service = unsafe { *serv_entry }.try_into()?;
-            Ok(Some(service))
+
+        let mut result_buf: servent = unsafe { mem::zeroed() };
+        let mut buffer: Vec<c_char> = vec![0; 1024];
+        let mut result: *mut servent = ptr::null_mut();
+
+        loop {
+            let ret = unsafe {
+                getservbyport_r(
+                    self.port as c_int,
+                    proto.as_ref().map_or(ptr::null(), |p| p.as_ptr()), 
+                    &mut result_buf, 
+                    buffer.as_mut_ptr(), 
+                    buffer.len(), 
+                    & mut result
+                )
+            };
+            if ret == 0 {
+                if !result.is_null(){
+                    let service: Service = unsafe { *result }.try_into()?;
+                    return Ok(Some(service));
+                }else{
+                    return Ok(None)
+                };
+            }  else if ret == ERANGE {
+                buffer.resize(buffer.len() * 2, 0 as c_char);
+                continue;
+            }else {
+                anyhow::bail!("Error: getservbyport_r failed with code {}", ret);              
+            }
         }
     }
 }
@@ -216,27 +276,27 @@ impl InNetGroup {
     }
 
     fn lookup(&self) -> Result<bool> {
-        let host_c: *const c_char = if let Some(host) = &self.host {
-            host.as_ptr() as *const c_char
-        } else {
-            std::ptr::null()
+        let netgroup_name = CString::new(self.netgroup.clone())?;
+
+        let host = match &self.host {
+            Some(s) => Some(CString::new(s.clone())?),
+            None => None,
         };
-        let user_c: *const c_char = if let Some(user) = &self.user {
-            user.as_ptr() as *const c_char
-        } else {
-            std::ptr::null()
+        let user = match &self.user {
+            Some(s) => Some(CString::new(s.clone())?),
+            None => None,
         };
-        let domain_c: *const c_char = if let Some(domain) = &self.domain {
-            domain.as_ptr() as *const c_char
-        } else {
-            std::ptr::null()
+        let domain = match &self.domain {
+            Some(s) => Some(CString::new(s.clone())?),
+            None => None,
         };
+
         let ret = unsafe {
             innetgr(
-                self.netgroup.as_ptr() as *const c_char,
-                host_c,
-                user_c,
-                domain_c,
+                netgroup_name.as_ptr() as *const c_char,
+                host.as_ref().map_or(ptr::null(), |s| s.as_ptr()),
+                user.as_ref().map_or(ptr::null(), |s| s.as_ptr()),
+                domain.as_ref().map_or(ptr::null(), |s| s.as_ptr()),
             ) != 0
         };
         Ok(ret)
@@ -253,11 +313,34 @@ impl FromStr for NetgroupWithName {
     }
 }
 
+//Required for use of setnetgrent in multi threaded apps
+//https://docs.oracle.com/cd/E88353_01/html/E37843/setnetgrent-3c.html
+
+//Note that while setnetgrent() and endnetgrent() are safe for use in multi-threaded applications, the effect of each is process-wide. 
+//Calling setnetgrent() resets the enumeration position for all threads. 
+//If multiple threads interleave calls to getnetgrent_r() each will enumerate a disjoint subset of the netgroup. 
+//Thus the effective use of these functions in multi-threaded applications may require coordination by the caller.
+
+//Make a Mutex to ensure that setnetgrent and getnetgrent_r are called in sequence
+static SETNETGRENT_LOCK: LazyLock<Mutex<u8>> = LazyLock::new(|| {
+    Mutex::new(0)
+});
 impl NetgroupWithName {
     fn lookup(&self) -> Result<Vec<Netgroup>> {
         let mut results: Vec<Netgroup> = vec![];
 
-        if unsafe { setnetgrent(self.name.as_ptr() as *const c_char) } != 1 {
+        let netgroup_name = CString::new(self.name.clone())?;
+
+        // if the mutex thinks it was poisoned (e.g by a thread panicing)
+        // that thread is not running, thus we can take the lock
+        // There is no need to explicitly unlock, this happens automatically
+        // at the conclusion of the function
+        let _guard = match SETNETGRENT_LOCK.lock(){
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        if unsafe { setnetgrent(netgroup_name.as_ptr() as *const c_char) } != 1 {
             anyhow::bail!("Error: Could not open netgroup {}", self.name);
         }
 
@@ -267,7 +350,7 @@ impl NetgroupWithName {
         let mut domain: *mut c_char = std::ptr::null_mut();
 
         loop {
-            let result = unsafe {
+            let ret = unsafe {
                 getnetgrent_r(
                     &mut host,
                     &mut user,
@@ -277,7 +360,7 @@ impl NetgroupWithName {
                 )
             };
 
-            if result == 1 {
+            if ret == 1 {
                 let host_str = if !host.is_null() {
                     Some(unsafe { CStr::from_ptr(host) }.to_owned())
                 } else {
@@ -301,17 +384,17 @@ impl NetgroupWithName {
                 });
 
                 continue;
-            } else if result == 0 {
+            } else if ret == 0 {
                 unsafe { endnetgrent() };
                 break;
-            } else if result == 34 {
+            } else if ret == ERANGE {
                 //TODO - include error number libs
                 // Double the buffer size and retry
                 buffer.resize(buffer.len() * 2, 0 as c_char);
                 continue;
             } else {
                 // Handle other errors
-                anyhow::bail!("Error: getnetgrent_r failed with code {}", result);
+                anyhow::bail!("Error: getnetgrent_r failed with code {}", ret);
             }
         }
 
@@ -572,6 +655,7 @@ pub fn handle_request(
             // Use the FromStr trait
             match str_slice.parse::<ServiceWithName>() {
                 Ok(service_with_name) => {
+                    debug!(log,"got getservbyname {:?}",service_with_name);
                     let service = service_with_name.lookup()?;
                     serialize_service(service)
                 }
@@ -600,6 +684,7 @@ pub fn handle_request(
             // Use the FromStr trait
             match str_slice.parse::<ServiceWithPort>() {
                 Ok(service_with_port) => {
+                    debug!(log,"got getservbyport {:?}",service_with_port);
                     let service = service_with_port.lookup()?;
                     serialize_service(service)
                 }
@@ -626,7 +711,7 @@ pub fn handle_request(
         }
         RequestType::INNETGR => {
             let in_netgroup = InNetGroup::from_bytes(request.key)?;
-            debug!(log, "{:?}", in_netgroup);
+            debug!(log, "got innetgr {:?}", in_netgroup);
             serialize_innetgr(in_netgroup.lookup()?)
         }
 
