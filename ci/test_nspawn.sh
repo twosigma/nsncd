@@ -1,6 +1,6 @@
 #!/bin/bash
 
-sudo debootstrap stable /stable-chroot http://deb.debian.org/debian/
+sudo debootstrap stable /stable-chroot http://deb.debian.org/debian/ &> /dev/null
 sudo dpkg -i nsncd*.deb	
 
 sdns="sudo systemd-nspawn --quiet --no-pager --bind-ro /var/run/nscd/socket:/var/run/nscd/socket -D /stable-chroot"
@@ -19,8 +19,18 @@ sudo sed '$ a netgroup: files' -i /etc/nsswitch.conf
 rc=0
 
 sudo useradd nsncdtest 
-echo -e "foo1\t65000/tcp" | sudo tee -a /etc/services
-echo -e "foo1\t65000/udp" | sudo tee -a /etc/services
+cp /etc/services ./services
+
+# simple service lookups
+echo -e "foo1\t65000/tcp" >> services
+echo -e "foo1\t65000/udp" >> services
+# huge service lookup to exercise buffer resize
+echo -en "bufresize\t65001/tcp " >> services
+for i in $(seq 1000); do echo -n "alias${i} "; done >> services
+echo "" >> services
+sudo mv services /etc/services
+
+tail -5 /etc/services
 echo -e "trusted-machines (machine1,user1,domain1), (machine2,user2,domain2), (machine3,user3,domain3)\n" | sudo tee -a /etc/netgroup
 
 # copy in and execute tests inside the chroot
