@@ -16,6 +16,7 @@ for i in $(seq 1 100); do
 	getent services 65000/udp || rc=1
 	getent services foo1/tcp || rc=1
 	getent services foo1/udp || rc=1
+    getent services bufresize/tcp > /dev/null|| rc=1
 	netgroup trusted-machines || rc=1
 	getent netgroup trusted-machines || rc=1
 	innetgr -h machine1 trusted-machines || rc=1
