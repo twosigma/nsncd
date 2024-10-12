@@ -1,3 +1,9 @@
+nsncd (1.5) unstable; urgency=low
+
+  * Support netgroup and service lookups
+
+ -- James Morris <jamesm@twosigma.com>  Fri, 11 Oct 2024 15:58:51 -0400
+
 nsncd (1.4.1) unstable; urgency=low
 
   * Update to stable rust (1.69.0) and build on Debian 10 with its
