@@ -20,6 +20,10 @@ and mailing lists.
 Just run the `nsncd` binary and it will listen at `/var/run/nscd/socket`.
 There's a simple `systemd` unit file, too.
 
+It will run `nsncd` as the `nscd` user and group, and apply some sandboxing.
+It also relies on the systemd `RuntimeDirectory=` functionality to create the
+directory at `/var/run/nscd` with appropriate permissions.
+
 If you're on a Debian-based system, you can use the provided Debian package to
 install `nsncd` to run under `systemd`. See `debian/README.source` for how to
 build it - we use a few Rust crates that aren't packaged for stable Debian
