@@ -8,7 +8,7 @@ rc=0
 # basic lookups
 getent passwd nsncdtest || rc=1
 getent group nsncdtest || rc=1
-
+id bug72 | grep 2709991565 || rc=1
 # we expect all of these to succeed 
 for i in $(seq 1 100); do
 	getent services 65000 || rc=1

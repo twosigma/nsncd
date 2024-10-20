@@ -949,7 +949,7 @@ fn serialize_initgroups(groups: Vec<Gid>) -> Result<Vec<u8>> {
 
     result.extend_from_slice(header.as_slice());
     for group in groups.iter() {
-        result.extend_from_slice(&i32::to_ne_bytes(group.as_raw().try_into()?));
+        result.extend_from_slice(&u32::to_ne_bytes(group.as_raw()));
     }
 
     Ok(result)
