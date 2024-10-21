@@ -204,6 +204,11 @@ impl FromStr for ServiceWithPort {
 
 impl ServiceWithPort {
     fn lookup(&self) -> Result<Option<Service>> {
+        //issue-142
+        //port 0 lookups to sssd return ENOMEM
+        if self.port == 0 {
+            return Ok(None);
+        }
         let proto = match &self.proto {
             Some(p) => Some(CString::new(p.clone())?),
             None => None,
