@@ -1,3 +1,10 @@
+nsncd (1.5.2) unstable; urgency=low
+
+  * Correctly handle lookups of missing netgroups
+  * Getservbyport should refuse port 0
+
+ -- James Morris <jamesm@twosigma.com>  Wed, 23 Oct 2024 06:25:31 -0400
+
 nsncd (1.5) unstable; urgency=low
 
   * Support netgroup and service lookups
