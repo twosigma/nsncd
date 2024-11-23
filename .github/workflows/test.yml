@@ -80,6 +80,35 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
 
+  build-rpm-package:
+    runs-on: ubuntu-latest
+    container: debian:11
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: clone
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y build-essential dpkg-dev ca-certificates sudo curl
+          cd clone
+          apt-get build-dep -y .
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
+      - name: Build package
+        run: |
+          debian/rules vendor
+          cargo generate-rpm 
+        working-directory: clone
+      - uses: actions/upload-artifact@v3
+        with:
+          name: rpm-package
+          path: |
+            ./*
+            !./clone/**
+
   build-debian-package-11:
     runs-on: ubuntu-latest
     container: debian:11

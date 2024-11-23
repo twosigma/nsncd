@@ -25,6 +25,7 @@ num-traits = "^0.2"
 sd-notify = "^0.4"
 static_assertions = "1.1.0"
 dns-lookup = "2.0.4"
+cargo-generate-rpm = "0.15.2"
 
 [dev-dependencies]
 criterion = "^0.5"
@@ -33,3 +34,11 @@ temp-env = "^0.3"
 [[bench]]
 name = "user"
 harness = false
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/nsncd", dest = "/usr/bin/nsncd", mode = "0755" },
+    { source = "debian/nsncd/lib/systemd/system/nsncd.service", dest = "/lib/systemd/system/nsncd.service", mode = "0644" },
+    { source = "LICENSE", dest = "/usr/share/doc/nsncd/LICENSE", doc = true, mode = "0644" },
+    { source = "README.md", dest = "/usr/share/doc/nsncd/README.md", doc = true, mode = "0644" }
+]
