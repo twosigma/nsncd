@@ -204,6 +204,11 @@ impl FromStr for ServiceWithPort {
 
 impl ServiceWithPort {
     fn lookup(&self) -> Result<Option<Service>> {
+        //issue-142
+        //port 0 lookups to sssd return ENOMEM
+        if self.port == 0 {
+            return Ok(None);
+        }
         let proto = match &self.proto {
             Some(p) => Some(CString::new(p.clone())?),
             None => None,
@@ -342,9 +347,9 @@ impl NetgroupWithName {
         };
 
         if unsafe { setnetgrent(netgroup_name.as_ptr() as *const c_char) } != 1 {
-            anyhow::bail!("Error: Could not open netgroup {}", self.name);
+            //setnetgrent returns 0 if the netgroup cannot be found
+            return Ok(results);
         }
-
         let mut buffer = vec![0 as c_char; 4096];
         let mut host: *mut c_char = std::ptr::null_mut();
         let mut user: *mut c_char = std::ptr::null_mut();
