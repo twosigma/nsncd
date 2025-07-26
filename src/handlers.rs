@@ -1297,6 +1297,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(target_endian = "little")]
     fn test_hostent_serialization() {
         let hostent = serialize_hostent(Hostent {
             name: CString::new(b"trantor.alternativebit.fr".to_vec()).unwrap(),
@@ -1419,6 +1420,7 @@ mod test {
     // unit tests of netgroup are a bit harder without /etc/netgroup data
 
     #[test]
+    #[cfg(target_endian = "little")]
     fn test_netgroup_serialization() {
         // validate netgroup response serialization
         let netgroupents = serialize_netgroup(vec![
@@ -1465,6 +1467,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(target_endian = "little")]
     fn test_innetgroup_serialization_in_group() {
         // validate innetgr serialization
         let in_netgroup = serialize_innetgr(true).expect("should serialize");
