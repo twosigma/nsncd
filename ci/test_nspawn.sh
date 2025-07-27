@@ -20,6 +20,10 @@ rc=0
 
 sudo useradd nsncdtest 
 cp /etc/services ./services
+cp /etc/hosts ./hosts
+
+echo -e "1.2.3.4\tfoo.localdomain\tfoo" >> hosts
+sudo mv hosts /etc/hosts
 
 # simple service lookups
 echo -e "foo1\t65000/tcp" >> services
