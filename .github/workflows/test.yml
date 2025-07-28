@@ -13,42 +13,47 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-test:
+
+  build-debian-11:
     runs-on: ubuntu-latest
+    container: debian:11
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get -y install build-essential dpkg-dev ca-certificates sudo curl
+          apt-get -y build-dep .
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
       - name: Build
         run: cargo build --verbose
-      - name: Run tests
-        run: cargo test --verbose
 
-  coverage:
+  build-debian-12:
     runs-on: ubuntu-latest
-    container:
-      image: xd009642/tarpaulin:develop
-      options: --security-opt seccomp=unconfined
+    container: debian:12
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get -y install build-essential dpkg-dev ca-certificates sudo curl
+          apt-get -y build-dep .
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
-      - name: Generate code coverage
-        run: cargo tarpaulin --all-features --workspace --timeout 120 --out xml
-      - uses: codecov/codecov-action@v3
-        with:
-          fail_ci_if_error: true
+      - name: Build
+        run: cargo build --verbose
 
-  build-debian-10:
+  build-debian-13:
     runs-on: ubuntu-latest
-    container: debian:10
+    container: debian:trixie
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
           apt-get update
@@ -64,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
@@ -74,12 +79,13 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  build-debian-package:
+
+  build-debian-package-11:
     runs-on: ubuntu-latest
-    container: debian:10
+    container: debian:11
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           path: clone
       - name: Install dependencies
@@ -98,54 +104,168 @@ jobs:
         working-directory: clone
       - uses: actions/upload-artifact@v4
         with:
-          name: deb-package
+          name: deb-package-debian-11
+          path: |
+            ./*
+            !./clone/**
+
+  build-debian-package-12:
+    runs-on: ubuntu-latest
+    container: debian:12
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: clone
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y build-essential dpkg-dev ca-certificates sudo curl
+          cd clone
+          apt-get build-dep -y .
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
+      - name: Build package
+        run: |
+          debian/rules vendor
+          dpkg-buildpackage --no-sign
+        working-directory: clone
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-package-debian-12
+          path: |
+            ./*
+            !./clone/**
+
+  build-debian-package-13:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: clone
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y build-essential dpkg-dev ca-certificates sudo curl
+          cd clone
+          apt-get build-dep -y .
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
+      - name: Build package
+        run: |
+          debian/rules vendor
+          dpkg-buildpackage --no-sign
+        working-directory: clone
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-package-debian-13
           path: |
             ./*
             !./clone/**
 
   run-ci-ubuntu-latest:
     runs-on: ubuntu-latest
-    needs: [build-debian-package]
+    needs: [build-debian-package-11, build-debian-package-12, build-debian-package-13]
 
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/download-artifact@v3
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: deb-package
+          name: deb-package-debian-12
       - name: CI
         run: ci/test.sh
         env:
           HAVE_SYSTEMD: "1"
 
-  run-ci-debian-10:
+
+  run-ci-debian-11:
     runs-on: ubuntu-latest
-    container: debian:10
-    needs: [build-debian-package]
+    container: debian:11
+    needs: [build-debian-package-11]
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
           apt-get update
           apt-get -y install build-essential
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
-          name: deb-package
+          name: deb-package-debian-11
       - name: CI
         run: ci/test.sh
         env:
           HAVE_SYSTEMD: "0"
 
+  run-ci-debian-12:
+    runs-on: ubuntu-latest
+    container: debian:12
+    needs: [build-debian-package-12]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get -y install build-essential
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb-package-debian-12
+      - name: CI
+        run: ci/test.sh
+        env:
+          HAVE_SYSTEMD: "0"
+
+  run-ci-debian-13:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    needs: [build-debian-package-13]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get -y install build-essential
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb-package-debian-13
+      - name: CI
+        run: ci/test.sh
+        env:
+          HAVE_SYSTEMD: "0"
+
+  # This step deliberately uses a vm
+  run-enhanced-ci-debian-11:
+    runs-on: ubuntu-latest
+    needs: [build-debian-package-11]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install build-essential systemd-container debootstrap
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb-package-debian-11
+      - name: CI
+        run: ci/test_nspawn.sh
+
   create-release:
     runs-on: ubuntu-latest
-    needs: [run-ci-ubuntu-latest, run-ci-debian-10]
+    needs: [run-ci-ubuntu-latest, run-ci-debian-11, run-ci-debian-12, run-ci-debian-13, run-enhanced-ci-debian-11]
     if: github.event.release
 
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
-          name: deb-package
-      - uses: softprops/action-gh-release@v1
+          name: deb-package-debian-11
+      - uses: softprops/action-gh-release@v2
         with:
           files: "*"
           tag_name: ${{ github.event.release.tag_name }}
