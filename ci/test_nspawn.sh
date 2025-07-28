@@ -19,6 +19,8 @@ sudo sed '$ a netgroup: files' -i /etc/nsswitch.conf
 rc=0
 
 sudo useradd nsncdtest 
+sudo groupadd bug72 --gid 2709991565
+sudo useradd bug72 --gid 2709991565
 cp /etc/services ./services
 cp /etc/hosts ./hosts
 
