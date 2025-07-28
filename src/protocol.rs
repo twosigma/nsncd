@@ -96,7 +96,7 @@ impl<'a> Request<'a> {
 
         let type_val = buf[4..8].try_into().map(i32::from_ne_bytes)?;
         let ty = FromPrimitive::from_i32(type_val)
-            .with_context(|| format!("invalid enum value {}", type_val))?;
+            .with_context(|| format!("invalid enum value {type_val}"))?;
 
         let key_len = buf[8..12].try_into().map(i32::from_ne_bytes)?;
         let key_end = (12 + key_len).try_into()?;

@@ -1077,8 +1077,7 @@ fn serialize_hostent(hostent: Hostent) -> Result<Vec<u8>> {
 ///    about to write.
 /// 5. canonlen: int32. Total length of the null-terminated canonical
 ///    name string.
-/// 6. error: int32. Error code. Always 0 in the current nscd
-///           implementation.
+/// 6. error: int32. Error code. Always 0 in the current nscd impl
 /// 7. addrs: \[BE-encoded IPv4/IPv6\]. We sequentially write the
 ///    IPv4 and IPv6 bytes using a big endian encoding. There's no
 ///    padding, an IPv4 will be 4 bytes wide, an IPv6 16 bytes wide.
