@@ -1,3 +1,13 @@
+nsncd (1.5.2) unstable; urgency=low
+
+  * Bump dependencies: sd-notify, criterion, nix, crossbeam-channel, anyhow,
+    num-derive
+  * Mark some tests little endian only (flokli)
+  * serialize_hostent: serialize IP addresses in one go (picnoir)
+  * Add CI tests for getent hosts
+
+ -- James Morris <jamesm@twosigma.com>  Mon, 28 Jul 2025 14:17:00 -0400
+
 nsncd (1.5.1) unstable; urgency=low
 
   * Correctly handle lookups of missing netgroups
