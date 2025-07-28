@@ -977,15 +977,11 @@ fn serialize_hostent(hostent: Hostent) -> Result<Vec<u8>> {
         match address {
             IpAddr::V4(ip4) => {
                 num_v4 += 1;
-                for octet in ip4.octets() {
-                    buf_addrs.push(octet)
-                }
+                buf_addrs.extend(ip4.octets())
             }
             IpAddr::V6(ip6) => {
                 num_v6 += 1;
-                for octet in ip6.octets() {
-                    buf_addrs.push(octet)
-                }
+                buf_addrs.extend(ip6.octets())
             }
         }
     }
