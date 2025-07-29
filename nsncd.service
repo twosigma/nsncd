@@ -17,6 +17,16 @@ Description=name-service non-caching daemon
 
 [Service]
 ExecStart=/usr/lib/nsncd
+User=nsncd
+Group=nsnccd
+RemoveIPC=true
+PrivateTmp=true
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+ProtectSystem=strict
+ProtectHome=read-only
+Restart=always
+RuntimeDirectory=nscd
 Restart=always
 Type=notify
 
