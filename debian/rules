@@ -32,6 +32,6 @@ override_dh_shlibdeps:
 vendor:
 	mkdir -p .cargo
 	cargo vendor > .cargo/config
-	ln -sf .cargo/config .cargo/config.toml
+	#ln -sf .cargo/config .cargo/config.toml
 	cat debian/Cargo.toml.append >> Cargo.toml
 	echo 'nsncd: source-is-missing vendor/*' > debian/source/lintian-overrides
