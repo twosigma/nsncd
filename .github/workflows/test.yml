@@ -99,6 +99,7 @@ jobs:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
       - name: Build package
         run: |
+          rm -fR vendor .cargo
           debian/rules vendor
           dpkg-buildpackage --no-sign
         working-directory: clone
