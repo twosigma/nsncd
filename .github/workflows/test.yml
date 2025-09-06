@@ -28,6 +28,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
+          cache: false
       - name: Build
         run: cargo build --verbose
 
@@ -45,6 +46,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
+          cache: false
       - name: Build
         run: cargo build --verbose
 
@@ -62,6 +64,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
+          cache: false
       - name: Build
         run: cargo build --verbose
 
@@ -73,6 +76,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
+          cache: false
       - run: rustup component add clippy
       - name: rust-clippy-check
         uses: actions-rs/clippy-check@v1
@@ -128,6 +132,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
+          cache: false
       - name: Build package
         run: |
           debian/rules vendor
@@ -157,6 +162,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
+          cache: false
       - name: Build package
         run: |
           debian/rules vendor
