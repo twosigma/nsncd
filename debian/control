@@ -2,7 +2,7 @@ Source: nsncd
 Section: misc
 Priority: optional
 Maintainer: Geoffrey Thomas <geofft@twosigma.com>
-Build-Depends: debhelper (>= 12), cargo, pkg-config
+Build-Depends: debhelper (>= 12), cargo, dh-cargo, rustc, pkg-config, librust-anyhow-dev, librust-atoi-dev, librust-slog-dev, librust-slog-async-dev, librust-slog-term-dev, librust-crossbeam-channel-dev, librust-nix-dev, librust-num-derive-dev, librust-num-traits-dev, librust-sd-notify-dev, librust-static-assertions-dev, librust-dns-lookup-dev
 Standards-Version: 3.9.8
 Homepage: https://github.com/twosigma/nsncd
 VCS-Git: https://github.com/twosigma/nsncd
