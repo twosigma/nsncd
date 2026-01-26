@@ -27,10 +27,3 @@ override_dh_auto_clean:
 override_dh_shlibdeps:
 	dh_shlibdeps
 	sed -i -e '/^shlibs:Depends=/s/, libc6 (\(<<\|>>\) [0-9\.]*)//g' debian/nsncd.substvars
-
-# See README.source.
-vendor:
-	mkdir -p .cargo
-	cargo vendor > .cargo/config
-	cat debian/Cargo.toml.append >> Cargo.toml
-	echo 'nsncd: source-is-missing vendor/*' > debian/source/lintian-overrides
