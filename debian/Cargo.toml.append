@@ -1,4 +1,0 @@
-
-
-[patch.crates-io]
-syn = { path = "vendor/syn" }

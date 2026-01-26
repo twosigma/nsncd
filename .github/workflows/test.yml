@@ -99,7 +99,6 @@ jobs:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
       - name: Build package
         run: |
-          debian/rules vendor
           dpkg-buildpackage --no-sign
         working-directory: clone
       - uses: actions/upload-artifact@v4
@@ -128,7 +127,6 @@ jobs:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
       - name: Build package
         run: |
-          debian/rules vendor
           dpkg-buildpackage --no-sign
         working-directory: clone
       - uses: actions/upload-artifact@v4
@@ -157,7 +155,6 @@ jobs:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
       - name: Build package
         run: |
-          debian/rules vendor
           dpkg-buildpackage --no-sign
         working-directory: clone
       - uses: actions/upload-artifact@v4
