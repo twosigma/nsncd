@@ -1,21 +1,3 @@
-Because Debian Stretch does not have a complete Rust packaging
-environment yet, we build the Debian package by first using "cargo
-vendor" to download the dependencies. To run this automatically and set
-things up, manually run
+This build currently requires internet access to access crates.io
 
-    debian/rules vendor
-
-in an environment with internet accesss.
-
-You can commit the resulting changes to your local clone, if you build
-packages in CI from git sources, or you can build a source package. (You
-may want to first run "debian/rules build clean" to trigger a small
-change to Cargo.toml, too.) The resulting git repo / source package will
-build like an ordinary Debian package, without needing to access the
-internet.
-
-The "debian/rules vendor" target does the following:
- - Runs "cargo vendor" and sets up Cargo configuration
- - Works around an issue where the "syn" crate includes a .gitignore
-   file, which is automatically ignored by dpkg-source when building the
-   source package
+When debian 11 builds are retired, rust dependencies packaged by the distribution may be used.
