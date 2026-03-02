@@ -170,7 +170,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-12
       - name: CI
@@ -190,7 +190,7 @@ jobs:
         run: |
           apt-get update
           apt-get -y install build-essential
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-11
       - name: CI
@@ -209,7 +209,7 @@ jobs:
         run: |
           apt-get update
           apt-get -y install build-essential
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-12
       - name: CI
@@ -228,7 +228,7 @@ jobs:
         run: |
           apt-get update
           apt-get -y install build-essential
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-13
       - name: CI
@@ -247,7 +247,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get -y install build-essential systemd-container debootstrap
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-11
       - name: CI
@@ -259,7 +259,7 @@ jobs:
     if: github.event.release
 
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-11
       - uses: softprops/action-gh-release@v2
