@@ -22,7 +22,7 @@ crossbeam-channel = "^0.5"
 nix = { version = "^0.31", features = ["socket", "user"]}
 num-derive = "^0.5"
 num-traits = "^0.2"
-sd-notify = "^0.4"
+sd-notify = "^0.5"
 static_assertions = "1.1.0"
 dns-lookup = "3.0.1"
 
