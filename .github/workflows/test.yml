@@ -19,7 +19,7 @@ jobs:
     container: debian:11
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           apt-get update
@@ -36,7 +36,7 @@ jobs:
     container: debian:12
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           apt-get update
@@ -53,7 +53,7 @@ jobs:
     container: debian:trixie
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           apt-get update
@@ -69,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ github.event.schedule && 'nightly' || 'stable' }}
@@ -85,7 +85,7 @@ jobs:
     container: debian:11
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           path: clone
       - name: Install dependencies
@@ -101,7 +101,7 @@ jobs:
         run: |
           dpkg-buildpackage --no-sign
         working-directory: clone
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: deb-package-debian-11
           path: |
@@ -113,7 +113,7 @@ jobs:
     container: debian:12
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           path: clone
       - name: Install dependencies
@@ -129,7 +129,7 @@ jobs:
         run: |
           dpkg-buildpackage --no-sign
         working-directory: clone
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: deb-package-debian-12
           path: |
@@ -141,7 +141,7 @@ jobs:
     container: debian:trixie
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           path: clone
       - name: Install dependencies
@@ -157,7 +157,7 @@ jobs:
         run: |
           dpkg-buildpackage --no-sign
         working-directory: clone
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: deb-package-debian-13
           path: |
@@ -169,8 +169,8 @@ jobs:
     needs: [build-debian-package-11, build-debian-package-12, build-debian-package-13]
 
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-12
       - name: CI
@@ -185,12 +185,12 @@ jobs:
     needs: [build-debian-package-11]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           apt-get update
           apt-get -y install build-essential
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-11
       - name: CI
@@ -204,12 +204,12 @@ jobs:
     needs: [build-debian-package-12]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           apt-get update
           apt-get -y install build-essential
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-12
       - name: CI
@@ -223,12 +223,12 @@ jobs:
     needs: [build-debian-package-13]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           apt-get update
           apt-get -y install build-essential
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-13
       - name: CI
@@ -242,12 +242,12 @@ jobs:
     needs: [build-debian-package-11]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get -y install build-essential systemd-container debootstrap
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-11
       - name: CI
@@ -259,10 +259,10 @@ jobs:
     if: github.event.release
 
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-11
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: "*"
           tag_name: ${{ github.event.release.tag_name }}
