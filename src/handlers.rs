@@ -855,7 +855,11 @@ fn serialize_service(service: Option<Service>) -> Result<Vec<u8>> {
             result.extend_from_slice(alias_bytes);
         }
     } else {
-        let header = protocol::ServResponseHeader::default();
+        let header = protocol::ServResponseHeader {
+            version: protocol::VERSION,
+            ..Default::default()
+        };
+
         result.extend_from_slice(header.as_slice());
     }
     Ok(result)
@@ -893,7 +897,10 @@ fn serialize_user(user: Option<User>) -> Result<Vec<u8>> {
         result.extend_from_slice(dir_bytes);
         result.extend_from_slice(shell_bytes);
     } else {
-        let header = protocol::PwResponseHeader::default();
+        let header = protocol::PwResponseHeader {
+            version: protocol::VERSION,
+            ..Default::default()
+        };
         result.extend_from_slice(header.as_slice());
     }
     Ok(result)
@@ -936,7 +943,10 @@ fn serialize_group(group: Option<Group>) -> Result<Vec<u8>> {
             result.extend_from_slice(member_bytes);
         }
     } else {
-        let header = protocol::GrResponseHeader::default();
+        let header = protocol::GrResponseHeader {
+            version: protocol::VERSION,
+            ..Default::default()
+        };
         result.extend_from_slice(header.as_slice());
     }
     Ok(result)
@@ -1478,5 +1488,33 @@ mod test {
         let in_netgroup = serialize_innetgr(false).expect("should serialize");
         let expected_bytes: Vec<u8> = vec![];
         assert_eq!(in_netgroup, expected_bytes)
+    }
+
+    fn response_version_and_found(response: &[u8]) -> (i32, i32) {
+        (
+            i32::from_ne_bytes(response[0..4].try_into().unwrap()),
+            i32::from_ne_bytes(response[4..8].try_into().unwrap()),
+        )
+    }
+
+    #[test]
+    fn test_serialize_user_not_found() {
+        let result = serialize_user(None).expect("should serialize not-found user");
+
+        assert_eq!(response_version_and_found(&result), (protocol::VERSION, 0));
+    }
+
+    #[test]
+    fn test_serialize_group_not_found() {
+        let result = serialize_group(None).expect("should serialize not-found group");
+
+        assert_eq!(response_version_and_found(&result), (protocol::VERSION, 0));
+    }
+
+    #[test]
+    fn test_serialize_service_not_found() {
+        let result = serialize_service(None).expect("should serialize not-found service");
+
+        assert_eq!(response_version_and_found(&result), (protocol::VERSION, 0));
     }
 }
