@@ -200,9 +200,7 @@ fn env_positive_usize(var: &str, default: usize) -> Result<usize> {
         Ok(s) => s,
         Err(_) => return Ok(default),
     };
-    let val = s
-        .parse()
-        .with_context(|| format!("parsing int from {s}"))?;
+    let val = s.parse().with_context(|| format!("parsing int from {s}"))?;
     if val > 0 {
         Ok(val)
     } else {
