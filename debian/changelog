@@ -1,3 +1,26 @@
+nsncd (1.5.2) unstable; urgency=low
+
+  * Bump dependencies: sd-notify, criterion, nix, crossbeam-channel, anyhow,
+    num-derive
+  * Mark some tests little endian only (flokli)
+  * serialize_hostent: serialize IP addresses in one go (picnoir)
+  * Add CI tests for getent hosts
+
+ -- James Morris <jamesm@twosigma.com>  Mon, 28 Jul 2025 14:17:00 -0400
+
+nsncd (1.5.1) unstable; urgency=low
+
+  * Correctly handle lookups of missing netgroups
+  * Getservbyport should refuse port 0
+
+ -- James Morris <jamesm@twosigma.com>  Wed, 23 Oct 2024 06:25:31 -0400
+
+nsncd (1.5) unstable; urgency=low
+
+  * Support netgroup and service lookups
+
+ -- James Morris <jamesm@twosigma.com>  Fri, 11 Oct 2024 15:58:51 -0400
+
 nsncd (1.4.1) unstable; urgency=low
 
   * Update to stable rust (1.69.0) and build on Debian 10 with its

@@ -14,20 +14,20 @@ license = "Apache-2.0"
 
 [dependencies]
 anyhow = "^1.0"
-atoi = "^2.0"
+atoi = "^3.1"
 slog = "^2.7"
 slog-async = "^2.8"
 slog-term = "^2.9"
 crossbeam-channel = "^0.5"
-nix = { version = "^0.28", features = ["socket", "user"]}
-num-derive = "^0.3"
+nix = { version = "^0.31", features = ["socket", "user"]}
+num-derive = "^0.5"
 num-traits = "^0.2"
 sd-notify = "^0.4"
 static_assertions = "1.1.0"
-dns-lookup = "2.0.4"
+dns-lookup = "3.0.1"
 
 [dev-dependencies]
-criterion = "^0.5"
+criterion = "^0.8"
 temp-env = "^0.3"
 
 [[bench]]

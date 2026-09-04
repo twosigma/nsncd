@@ -96,10 +96,13 @@ impl<'a> Request<'a> {
 
         let type_val = buf[4..8].try_into().map(i32::from_ne_bytes)?;
         let ty = FromPrimitive::from_i32(type_val)
-            .with_context(|| format!("invalid enum value {}", type_val))?;
+            .with_context(|| format!("invalid enum value {type_val}"))?;
 
         let key_len = buf[8..12].try_into().map(i32::from_ne_bytes)?;
-        let key_end = (12 + key_len).try_into()?;
+        let key_len: usize = key_len.try_into().context("invalid key length")?;
+        let key_end = 12usize
+            .checked_add(key_len)
+            .context("request key length overflow")?;
         ensure!(buf.len() >= key_end, "request body too small");
 
         Ok(Request {
@@ -264,9 +267,87 @@ impl HstResponseHeader {
     }
 }
 
+/* Structure send in reply to innetgroup query.  Note that this struct is
+sent also if the service is disabled or there is no record found.  */
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct InNetgroupResponseHeader {
+    pub version: c_int,
+    pub found: c_int,
+    pub result: c_int,
+}
+
+impl InNetgroupResponseHeader {
+    /// Serialize the header to bytes.
+    ///
+    /// The C implementations of nscd just take the address of the struct, so
+    /// we will too, to make it easy to convince ourselves it's correct.
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
+/* Structure send in reply to service query.  Note that this struct is
+sent also if the service is disabled or there is no record found.  */
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ServResponseHeader {
+    pub version: c_int,
+    pub found: c_int,
+    pub s_name_len: c_int,
+    pub s_proto_len: c_int,
+    pub s_aliases_cnt: c_int,
+    pub s_port: c_int,
+}
+
+/* Structure send in reply to netgroup query.  Note that this struct is
+sent also if the service is disabled or there is no record found.  */
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct NetgroupResponseHeader {
+    pub version: c_int,
+    pub found: c_int,
+    pub nresults: c_int,
+    pub result_len: c_int,
+}
+
+impl ServResponseHeader {
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
+impl NetgroupResponseHeader {
+    pub fn as_slice(&self) -> &[u8] {
+        let p = self as *const _ as *const u8;
+        unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    fn request_with_key_len(key_len: i32) -> Vec<u8> {
+        let mut request = vec![];
+        request.extend_from_slice(&VERSION.to_ne_bytes());
+        request.extend_from_slice(&(RequestType::GETPWBYNAME as i32).to_ne_bytes());
+        request.extend_from_slice(&key_len.to_ne_bytes());
+        request
+    }
+
+    #[test]
+    fn request_parse_rejects_negative_key_len() {
+        assert!(Request::parse(&request_with_key_len(-1)).is_err());
+    }
+
+    #[test]
+    fn request_parse_rejects_oversized_key_len() {
+        assert!(Request::parse(&request_with_key_len(i32::MAX)).is_err());
+    }
 
     #[test]
     fn test_pw_response_header_as_slice() {

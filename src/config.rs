@@ -162,7 +162,7 @@ impl Config {
                 })?;
                 let value = value
                     .parse()
-                    .with_context(|| format!("parsing bool from {}", value))?;
+                    .with_context(|| format!("parsing bool from {value}"))?;
                 if value {
                     for ty in types.iter() {
                         ignored_request_types.insert(ty);
@@ -202,7 +202,7 @@ fn env_positive_usize(var: &str, default: usize) -> Result<usize> {
     };
     let val = s
         .parse()
-        .with_context(|| format!("parsing int from {}", s))?;
+        .with_context(|| format!("parsing int from {s}"))?;
     if val > 0 {
         Ok(val)
     } else {

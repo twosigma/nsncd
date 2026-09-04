@@ -54,7 +54,9 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use crossbeam_channel as channel;
 use sd_notify::NotifyState;
+#[allow(unused_imports)]
 use slog::{debug, error, o, Drain};
+use std::env;
 
 mod config;
 mod ffi;
@@ -65,7 +67,7 @@ mod work_group;
 use config::Config;
 use work_group::WorkGroup;
 
-const SOCKET_PATH: &str = "/var/run/nscd/socket";
+const DEFAULT_SOCKET_PATH: &str = "/var/run/nscd/socket";
 
 fn main() -> Result<()> {
     ffi::disable_internal_nscd();
@@ -77,7 +79,9 @@ fn main() -> Result<()> {
     let logger = slog::Logger::root(drain, slog::o!());
 
     let config = Config::from_env()?;
-    let path = Path::new(SOCKET_PATH);
+    let socket_path =
+        env::var("NSNCD_SOCKET_PATH").unwrap_or_else(|_| DEFAULT_SOCKET_PATH.to_string());
+    let path = Path::new(&socket_path);
 
     slog::info!(logger, "started";
         "path" => ?path,
