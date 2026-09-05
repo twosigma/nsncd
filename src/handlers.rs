@@ -735,9 +735,9 @@ fn serialize_innetgr(innetgr: bool) -> Result<Vec<u8>> {
 
     if innetgr {
         let header = protocol::InNetgroupResponseHeader {
-            version: protocol::VERSION,
             found: 1,
             result: 1,
+            ..Default::default()
         };
         result.extend_from_slice(header.as_slice());
     }
@@ -775,10 +775,10 @@ fn serialize_netgroup(netgroups: Vec<Netgroup>) -> Result<Vec<u8>> {
     // make the header first
     // This approach supports a 0 length list
     let header = protocol::NetgroupResponseHeader {
-        version: protocol::VERSION,
         found: 1,
         nresults: netgroups.len().try_into()?,
         result_len,
+        ..Default::default()
     };
     // TODO - this should if netgroups.len() ==0 return [].. at the top.
     // not sure of the syntax to early return
@@ -836,12 +836,13 @@ fn serialize_service(service: Option<Service>) -> Result<Vec<u8>> {
             .collect();
 
         let header = protocol::ServResponseHeader {
-            version: protocol::VERSION,
             found: 1,
             s_name_len: name_bytes.len().try_into()?,
             s_proto_len: proto_bytes.len().try_into()?,
             s_aliases_cnt: aliases.len().try_into()?,
             s_port: port,
+                        ..Default::default()
+
         };
         result.extend_from_slice(header.as_slice());
         result.extend_from_slice(name_bytes);
@@ -856,6 +857,7 @@ fn serialize_service(service: Option<Service>) -> Result<Vec<u8>> {
         }
     } else {
         let header = protocol::ServResponseHeader::default();
+
         result.extend_from_slice(header.as_slice());
     }
     Ok(result)
@@ -876,7 +878,6 @@ fn serialize_user(user: Option<User>) -> Result<Vec<u8>> {
         let shell_bytes = shell.to_bytes_with_nul();
 
         let header = protocol::PwResponseHeader {
-            version: protocol::VERSION,
             found: 1,
             pw_name_len: name_bytes.len().try_into()?,
             pw_passwd_len: passwd_bytes.len().try_into()?,
@@ -885,6 +886,8 @@ fn serialize_user(user: Option<User>) -> Result<Vec<u8>> {
             pw_gecos_len: gecos_bytes.len().try_into()?,
             pw_dir_len: dir_bytes.len().try_into()?,
             pw_shell_len: shell_bytes.len().try_into()?,
+                        ..Default::default()
+
         };
         result.extend_from_slice(header.as_slice());
         result.extend_from_slice(name_bytes);
@@ -919,12 +922,13 @@ fn serialize_group(group: Option<Group>) -> Result<Vec<u8>> {
             .collect();
 
         let header = protocol::GrResponseHeader {
-            version: protocol::VERSION,
             found: 1,
             gr_name_len: name_bytes.len().try_into()?,
             gr_passwd_len: passwd_bytes.len().try_into()?,
             gr_gid: data.gid.as_raw(),
             gr_mem_cnt: mem_cnt.try_into()?,
+                        ..Default::default()
+
         };
         result.extend_from_slice(header.as_slice());
         for member_bytes in members_bytes.iter() {
@@ -947,9 +951,10 @@ fn serialize_group(group: Option<Group>) -> Result<Vec<u8>> {
 fn serialize_initgroups(groups: Vec<Gid>) -> Result<Vec<u8>> {
     let mut result = vec![];
     let header = protocol::InitgroupsResponseHeader {
-        version: protocol::VERSION,
         found: 1,
         ngrps: groups.len().try_into()?,
+            ..Default::default()
+
     };
 
     result.extend_from_slice(header.as_slice());
@@ -995,7 +1000,6 @@ fn serialize_hostent(hostent: Hostent) -> Result<Vec<u8>> {
     if hostent.addr_list.is_empty() {
         return Ok(Vec::from(
             protocol::HstResponseHeader {
-                version: protocol::VERSION,
                 found: 0,
                 h_name_len: 0,
                 h_aliases_cnt: 0,
@@ -1003,6 +1007,8 @@ fn serialize_hostent(hostent: Hostent) -> Result<Vec<u8>> {
                 h_length: -1,
                 h_addr_list_cnt: 0,
                 error: hostent.herrno,
+                            ..Default::default()
+
             }
             .as_slice(),
         ));
@@ -1016,7 +1022,6 @@ fn serialize_hostent(hostent: Hostent) -> Result<Vec<u8>> {
     let hostname_bytes = hostent.name.into_bytes_with_nul();
 
     let header = protocol::HstResponseHeader {
-        version: protocol::VERSION,
         found: 1,
         h_name_len: hostname_bytes.len() as i32,
         h_aliases_cnt: hostent.aliases.len() as i32,
@@ -1028,6 +1033,8 @@ fn serialize_hostent(hostent: Hostent) -> Result<Vec<u8>> {
         h_length: if num_v4 != 0 { 4 } else { 16 },
         h_addr_list_cnt: hostent.addr_list.len() as i32,
         error: hostent.herrno,
+                    ..Default::default()
+
     };
 
     let total_len = std::mem::size_of::<protocol::HstResponseHeader>()
@@ -1101,12 +1108,12 @@ fn serialize_address_info(resp: AiResponse) -> Result<Vec<u8>> {
     if addrslen > 0 {
         let b_canon_name = CString::new(resp.canon_name)?.into_bytes_with_nul();
         let ai_response_header = AiResponseHeader {
-            version: protocol::VERSION,
             found: 1,
             naddrs: resp.addrs.len() as i32,
             addrslen: addrslen as i32,
             canonlen: b_canon_name.len() as i32,
             error: protocol::H_ERRNO_NETDB_SUCCESS,
+            ..Default::default()
         };
 
         let total_len = size_of::<AiResponseHeader>() + b_addrs.len() + b_families.len();
@@ -1118,7 +1125,7 @@ fn serialize_address_info(resp: AiResponse) -> Result<Vec<u8>> {
         Ok(buffer)
     } else {
         let mut buffer = Vec::with_capacity(size_of::<AiResponseHeader>());
-        buffer.extend_from_slice(protocol::AI_RESPONSE_HEADER_NOT_FOUND.as_slice());
+        buffer.extend_from_slice(protocol::AiResponseHeader::default().as_slice());
         Ok(buffer)
     }
 }
@@ -1478,5 +1485,33 @@ mod test {
         let in_netgroup = serialize_innetgr(false).expect("should serialize");
         let expected_bytes: Vec<u8> = vec![];
         assert_eq!(in_netgroup, expected_bytes)
+    }
+
+    fn response_version_and_found(response: &[u8]) -> (i32, i32) {
+        (
+            i32::from_ne_bytes(response[0..4].try_into().unwrap()),
+            i32::from_ne_bytes(response[4..8].try_into().unwrap()),
+        )
+    }
+
+    #[test]
+    fn test_serialize_user_not_found() {
+        let result = serialize_user(None).expect("should serialize not-found user");
+
+        assert_eq!(response_version_and_found(&result), (protocol::VERSION, 0));
+    }
+
+    #[test]
+    fn test_serialize_group_not_found() {
+        let result = serialize_group(None).expect("should serialize not-found group");
+
+        assert_eq!(response_version_and_found(&result), (protocol::VERSION, 0));
+    }
+
+    #[test]
+    fn test_serialize_service_not_found() {
+        let result = serialize_service(None).expect("should serialize not-found service");
+
+        assert_eq!(response_version_and_found(&result), (protocol::VERSION, 0));
     }
 }
