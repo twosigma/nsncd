@@ -122,7 +122,7 @@ impl<'a> Request<'a> {
 /// Structure sent in reply to password query.  Note that this struct is
 /// sent also if the service is disabled or there is no record found.
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct PwResponseHeader {
     pub version: c_int,
     pub found: c_int,
@@ -146,10 +146,26 @@ impl PwResponseHeader {
     }
 }
 
+impl Default for PwResponseHeader {
+    fn default() -> Self {
+        Self {
+            version: VERSION,
+            found: 0,
+            pw_name_len: 0,
+            pw_passwd_len: 0,
+            pw_uid: 0,
+            pw_gid: 0,
+            pw_gecos_len: 0,
+            pw_dir_len: 0,
+            pw_shell_len: 0,
+        }
+    }
+}
+
 /// Structure sent in reply to group query.  Note that this struct is
 /// sent also if the service is disabled or there is no record found.
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct GrResponseHeader {
     pub version: c_int,
     pub found: c_int,
@@ -170,10 +186,23 @@ impl GrResponseHeader {
     }
 }
 
+impl Default for GrResponseHeader {
+    fn default() -> Self {
+        Self {
+            version: VERSION,
+            found: 0,
+            gr_name_len: 0,
+            gr_passwd_len: 0,
+            gr_gid: 0,
+            gr_mem_cnt: 0,
+        }
+    }
+}
+
 /// Structure sent in reply to initgroups query.  Note that this struct is
 /// sent also if the service is disabled or there is no record found.
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct InitgroupsResponseHeader {
     pub version: c_int,
     pub found: c_int,
@@ -188,6 +217,16 @@ impl InitgroupsResponseHeader {
     pub fn as_slice(&self) -> &[u8] {
         let p = self as *const _ as *const u8;
         unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
+impl Default for InitgroupsResponseHeader {
+    fn default() -> Self {
+        Self {
+            version: VERSION,
+            found: 0,
+            ngrps: 0,
+        }
     }
 }
 
@@ -228,23 +267,24 @@ impl AiResponseHeader {
     }
 }
 
-/// Magic address info header returned to the client when an address
-/// lookup doesn't yield any matches. See glib's `nscd/aicache.c` file
-/// for the original definition.
-pub const AI_RESPONSE_HEADER_NOT_FOUND: AiResponseHeader = AiResponseHeader {
-    version: VERSION,
-    found: 0,
-    naddrs: 0,
-    addrslen: 0,
-    canonlen: 0,
-    error: 0,
-};
+impl Default for AiResponseHeader {
+    fn default() -> Self {
+        Self {
+            version: VERSION,
+            found: 0,
+            naddrs: 0,
+            addrslen: 0,
+            canonlen: 0,
+            error: 0,
+        }
+    }
+}
 
 /// Structure used to hold the reply header of a
 /// gethostbyaddr[v6]/gethostbyname[v6] request.
 /// Maps to the hst_response_header struct in nscd.
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct HstResponseHeader {
     pub version: c_int,
     pub found: c_int,           // 0 or 1, -1 if disabled
@@ -267,10 +307,25 @@ impl HstResponseHeader {
     }
 }
 
+impl Default for HstResponseHeader {
+    fn default() -> Self {
+        Self {
+            version: VERSION,
+            found: 0,
+            h_name_len: 0,
+            h_aliases_cnt: 0,
+            h_addrtype: 0,
+            h_length: 0,
+            h_addr_list_cnt: 0,
+            error: 0,
+        }
+    }
+}
+
 /* Structure send in reply to innetgroup query.  Note that this struct is
 sent also if the service is disabled or there is no record found.  */
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct InNetgroupResponseHeader {
     pub version: c_int,
     pub found: c_int,
@@ -288,11 +343,21 @@ impl InNetgroupResponseHeader {
     }
 }
 
+impl Default for InNetgroupResponseHeader {
+    fn default() -> Self {
+        Self {
+            version: VERSION,
+            found: 0,
+            result: 0,
+        }
+    }
+}
+
 /* Structure send in reply to service query.  Note that this struct is
 sent also if the service is disabled or there is no record found.  */
 
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct ServResponseHeader {
     pub version: c_int,
     pub found: c_int,
@@ -302,17 +367,6 @@ pub struct ServResponseHeader {
     pub s_port: c_int,
 }
 
-/* Structure send in reply to netgroup query.  Note that this struct is
-sent also if the service is disabled or there is no record found.  */
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct NetgroupResponseHeader {
-    pub version: c_int,
-    pub found: c_int,
-    pub nresults: c_int,
-    pub result_len: c_int,
-}
-
 impl ServResponseHeader {
     pub fn as_slice(&self) -> &[u8] {
         let p = self as *const _ as *const u8;
@@ -320,10 +374,45 @@ impl ServResponseHeader {
     }
 }
 
+impl Default for ServResponseHeader {
+    fn default() -> Self {
+        Self {
+            version: VERSION,
+            found: 0,
+            s_name_len: 0,
+            s_proto_len: 0,
+            s_aliases_cnt: 0,
+            s_port: 0,
+        }
+    }
+}
+
+/* Structure send in reply to netgroup query.  Note that this struct is
+sent also if the service is disabled or there is no record found.  */
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct NetgroupResponseHeader {
+    pub version: c_int,
+    pub found: c_int,
+    pub nresults: c_int,
+    pub result_len: c_int,
+}
+
 impl NetgroupResponseHeader {
     pub fn as_slice(&self) -> &[u8] {
         let p = self as *const _ as *const u8;
         unsafe { std::slice::from_raw_parts(p, size_of::<Self>()) }
+    }
+}
+
+impl Default for NetgroupResponseHeader {
+    fn default() -> Self {
+        Self {
+            version: VERSION,
+            found: 0,
+            nresults: 0,
+            result_len: 0,
+        }
     }
 }
 
