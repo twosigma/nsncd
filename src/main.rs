@@ -96,7 +96,7 @@ fn main() -> Result<()> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))?;
     spawn_acceptor(&mut wg, &logger, listener, tx, config.handoff_timeout);
 
-    let _ = sd_notify::notify(true, &[NotifyState::Ready]);
+    let _ = sd_notify::notify(&[NotifyState::Ready]);
 
     let (result, handles) = wg.run();
     if let Err(e) = result {
