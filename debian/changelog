@@ -1,3 +1,17 @@
+nsncd (1.5.3) unstable; urgency=low
+
+    * Reject invalid request key lengths (jeet-dekivadia)
+    * Fix version in not-found passwd and group responses; musl rejects
+      NSCD responses with a zero protocol version (#206)
+    * Provide default impl for all headers with appropriate version set
+    * Add arm64 build and test
+    * Retire Debian 11 packaging support
+    * Remove vendor rules target
+    * Bump dependencies: sd-notify, dns-lookup, crossbeam-channel, atoi,
+      nix, anyhow, num-derive, criterion, slog-term
+
+ -- James Morris <jamesm@twosigma.com>  Fri, 11 Sep 2026 08:12:04 -0400
+
 nsncd (1.5.2) unstable; urgency=low
 
   * Bump dependencies: sd-notify, criterion, nix, crossbeam-channel, anyhow,
