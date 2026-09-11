@@ -17,7 +17,24 @@ Description=name-service non-caching daemon
 
 [Service]
 ExecStart=/usr/lib/nsncd
+# NSS modules may read host configuration, open network connections, or talk to
+# local daemons. Do not isolate those interfaces here.
+CapabilityBoundingSet=
+LockPersonality=true
+NoNewPrivileges=true
+PrivateDevices=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
 Restart=always
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+SystemCallFilter=~@clock @raw-io @reboot @swap
 Type=notify
 
 [Install]
