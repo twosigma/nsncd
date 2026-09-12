@@ -1,0 +1,38 @@
+#!/bin/sh -e
+
+
+set -e
+
+# Define your service credentials
+_USERNAME="nscd"
+_GROUPNAME="nscd"
+
+case "$1" in
+    configure)
+        # 1. Create a system group if it doesn't exist
+        if ! getent group "$_GROUPNAME" >/dev/null; then
+            addgroup --system --quiet "$_GROUPNAME"
+        fi
+
+        # 2. Create the system user belonging to that group
+        #    adduser implicitly handles existence checks and does not fail if it already exists.
+        adduser --system \
+                --ingroup "$_GROUPNAME" \
+                --home /nonexistent \
+                --no-create-home \
+                --disabled-login \
+                "$_USERNAME"
+    ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+    ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

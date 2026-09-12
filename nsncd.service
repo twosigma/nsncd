@@ -17,8 +17,39 @@ Description=name-service non-caching daemon
 
 [Service]
 ExecStart=/usr/lib/nsncd
-Restart=always
+User=nscd
+Group=nscd
+
 Type=notify
+Restart=always
+RestartSec=1s
+
+RuntimeDirectory=nscd
+
+PrivateTmp=true
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+
+ProtectSystem=strict
+ProtectHome=read-only
+
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
 
 [Install]
 WantedBy=multi-user.target
+
+
