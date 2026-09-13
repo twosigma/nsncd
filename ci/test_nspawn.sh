@@ -18,13 +18,18 @@ sudo sed '$ a netgroup: files' -i /etc/nsswitch.conf
 
 rc=0
 
-sudo useradd nsncdtest 
+sudo useradd nsncdtest
 sudo groupadd bug72 --gid 2709991565
-sudo useradd bug72 --gid 2709991565
+# assign specific uid to bug72
+sudo useradd bug72 --uid 2709991565 --gid 2709991565
+# assign secondary group so initgroups returns more than just the primary
+sudo groupadd bugsecondary --gid 2709991566
+sudo usermod -aG bugsecondary bug72
 cp /etc/services ./services
 cp /etc/hosts ./hosts
 
 echo -e "1.2.3.4\tfoo.localdomain\tfoo" >> hosts
+echo -e "fd00::1234\tfoo6.localdomain\tfoo6" >> hosts
 sudo mv hosts /etc/hosts
 
 # simple service lookups
