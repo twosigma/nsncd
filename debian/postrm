@@ -4,14 +4,14 @@ set -e
 case "$1" in
     purge)
         # Remove the system user if deluser exists and the user exists
-        if [ -x "$(command -v deluser)" ] && getent passwd_or_username_check >/dev/null; then
+        if [ -x "$(command -v deluser)" ] && getent _nsncd >/dev/null; then
             # Replace 'myuser' with your actual system username
-            deluser --quiet --system _nscd || true
+            deluser --quiet --system _nsncd || true
         fi
 
         # Remove the system group if delgroup exists and the group exists
-        if [ -x "$(command -v delgroup)" ] && getent group mygroup >/dev/null; then
-            delgroup --quiet --system --only-if-empty _nscd || true
+        if [ -x "$(command -v delgroup)" ] && getent group _nsncd >/dev/null; then
+            delgroup --quiet --system --only-if-empty _nsncd || true
         fi
         ;;
 

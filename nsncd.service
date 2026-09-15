@@ -16,10 +16,10 @@
 Description=name-service non-caching daemon
 
 [Service]
+EnvironmentFile=-/etc/default/nsncd
 ExecStart=/usr/lib/nsncd
-User=_nscd
-Group=_bnscd
-RuntimeDirectory=/run/nscd
+User=_nsncd
+Group=_nsncd
 
 Type=notify
 Restart=always

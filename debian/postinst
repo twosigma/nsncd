@@ -7,17 +7,17 @@ case "$1" in
 configure)
 	# 1. Create a system group if it doesn't exist
 	if ! getent group "$_GROUPNAME" >/dev/null; then
-		addgroup --system --quiet _nscd
+		addgroup --system --quiet _nsncd
 	fi
 
 	# 2. Create the system user belonging to that group
 	#    adduser implicitly handles existence checks and does not fail if it already exists.
 	adduser --system \
-		--ingroup _nscd \
+		--ingroup _nsncd \
 		--home /nonexistent \
 		--no-create-home \
 		--disabled-login \
-		_nscd
+		_nsncd
 	;;
 
 abort-upgrade | abort-remove | abort-deconfigure) ;;
