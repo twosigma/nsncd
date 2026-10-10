@@ -176,7 +176,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get -y install build-essential adduser
+          sudo apt-get -y install build-essential
       - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-13-arm64
@@ -195,7 +195,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get -y install build-essential adduser
+          apt-get -y install build-essential
       - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-13-arm64
@@ -231,7 +231,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get -y install build-essential adduser
+          apt-get -y install build-essential
       - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-12
@@ -250,7 +250,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get -y install build-essential adduser
+          apt-get -y install build-essential
       - uses: actions/download-artifact@v8
         with:
           name: deb-package-debian-13

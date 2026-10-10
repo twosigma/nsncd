@@ -1,7 +1,7 @@
 #!/bin/bash
 
 sudo debootstrap stable /stable-chroot http://deb.debian.org/debian/ &> /dev/null
-sudo dpkg -i nsncd*.deb	
+sudo apt install -y ./nsncd*.deb	
 
 sdns="sudo systemd-nspawn --quiet --no-pager --bind-ro /var/run/nscd/socket:/var/run/nscd/socket -D /stable-chroot"
 
