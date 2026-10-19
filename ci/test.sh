@@ -20,11 +20,11 @@ gcc -fPIC -shared -o ci/libnss_whatami.so.2 ci/libnss_whatami.c
 if [ "${HAVE_SYSTEMD}" = "1" ]; then
     sudo cp ci/libnss_whatami.so.2 /lib
     sudo sed -i 's/\(passwd\|group\):/& whatami/' /etc/nsswitch.conf
-    sudo dpkg -i nsncd*.deb
+    sudo apt install -y ./nsncd*.deb
 else
     cp ci/libnss_whatami.so.2 /lib
     sed -i 's/\(passwd\|group\):/& whatami/' /etc/nsswitch.conf
-    dpkg -i nsncd*.deb
+    apt install -y ./nsncd*.deb
     /usr/lib/nsncd &
     NSNCD_PID=$!
     trap "kill $NSNCD_PID" EXIT
