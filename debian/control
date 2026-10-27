@@ -12,7 +12,7 @@ Rules-Requires-Root: no
 
 Package: nsncd
 Architecture: any
-Depends: ${misc:Depends}, ${shlibs:Depends}
+Depends: ${misc:Depends}, ${shlibs:Depends}, adduser
 Description: Name service non-caching daemon
  nsncd implements the NSCD (name-service caching daemon) protocol to
  provide out-of-process NSS lookups but does not implement caching.
