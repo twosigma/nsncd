@@ -123,7 +123,6 @@ fn spawn_acceptor(
     handoff_timeout: Duration,
 ) {
     let log = log.new(o!("thread" => "accept"));
-
     wg.add(move |ctx| {
         for stream in listener.incoming() {
             if ctx.is_shutdown() {
@@ -131,17 +130,12 @@ fn spawn_acceptor(
             }
 
             match stream {
-                // if something goes wrong and it's multiple seconds until we
-                // get a response, kill the process.
-                //
-                // the timeout here is set such that nss will fall back to system
-                // libc before this timeout is hit - clients will already be
-                // giving up and going elsewhere so crashing the process should
-                // not make a bad situation worse.
                 Ok(stream) => match tx.send_timeout(stream, handoff_timeout) {
                     Err(channel::SendTimeoutError::Timeout(_)) => {
+                        // All workers are busy. Drop this connection, but keep
+                        // accepting so the daemon can recover when a worker
+                        // becomes available.
                         error!(log, "timed out waiting for an available worker");
-                        break;
                     }
                     Err(channel::SendTimeoutError::Disconnected(_)) => {
                         error!(log, "worker channel is disconnected");

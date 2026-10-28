@@ -32,3 +32,11 @@ else
 fi
 getent passwd whatami | grep nsncd
 getent initgroups am_i_nsncd | grep '100001.*100020'
+
+if [ "${HAVE_SYSTEMD}" = "0" ]; then
+    kill "$NSNCD_PID"
+    wait "$NSNCD_PID" || true
+    trap - EXIT
+
+    ci/test_worker_saturation.sh
+fi
