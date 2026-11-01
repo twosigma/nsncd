@@ -4,7 +4,7 @@ set -e
 case "$1" in
     purge)
         # Remove the system user if deluser exists and the user exists
-        if [ -x "$(command -v deluser)" ] && getent _nsncd >/dev/null; then
+        if [ -x "$(command -v deluser)" ] && getent group _nsncd >/dev/null; then
             # Replace 'myuser' with your actual system username
             deluser --quiet --system _nsncd || true
         fi
