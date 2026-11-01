@@ -1,0 +1,12 @@
+nsncd (1.6.0) unstable; urgency=medium
+
+  nsncd now runs as the unprivileged sysytem user and grou `_nsncd`
+  which the package creates on install. The service unit also applied
+  systemd sandboxing; it drops all capabilities and enabled
+  ProtectSystem=strict, PrivateTmp and RestrictAddressFamiliies.
+
+  Most NSS modules work unchanged, including ss,s ldacp (nslcd), winbind,
+  systemd, files, extrausers and cache, because they read world-reasable
+  files or talk to a privileged daemon over a socket.
+
+ -- James Morris <jamesm@twosigma.com>  Mon, 28 Jul 2025 14:17:00 -0400
