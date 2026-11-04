@@ -1,3 +1,9 @@
+nsncd (1.6.0) unstable; urgency=low
+
+  * Run as unprivileged _nsncd user, apply systemd sandboxing
+
+ -- James Morris <jamesm@twosigma.com>  Sun, 01 Nov 2026 10:18:31 -0500
+
 nsncd (1.5.3) unstable; urgency=low
 
     * Reject invalid request key lengths (jeet-dekivadia)

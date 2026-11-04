@@ -20,6 +20,10 @@ and mailing lists.
 Just run the `nsncd` binary and it will listen at `/var/run/nscd/socket`.
 There's a simple `systemd` unit file, too.
 
+It will run `nsncd` as the `_nsncd` user and group, and apply some sandboxing.
+It also relies on the systemd `RuntimeDirectory=` functionality to create the
+directory at `/var/run/nscd` with appropriate permissions.
+
 If you're on a Debian-based system, you can use the provided Debian package to
 install `nsncd` to run under `systemd`. See `debian/README.source` for how to
 build it - we use a few Rust crates that aren't packaged for stable Debian
@@ -51,6 +55,26 @@ Some request types may be ignored by the implementation (e.g. the ones that
 request a file descriptor pointing into internal cache structures).
 
 `NSNCD_SOCKET_PATH` may be set to override the default location of the socket.
+
+## Reverting unprivileged defaults
+
+1.6.0 modified the service to run as the unprivileged `_nsncd` user by default.
+
+Some legacy modules need root to work correctly. One example is PADL's
+libnss_ldap configured with rootbinddn, which reads /etc/ldap.secret
+only when running as root. Without root, it may fall back to an
+anonymous bind and return incomplete results. If you use such a module,
+restore the previous behaviour with a drop-in (`systemctl edit nsncd`):
+
+```
+[Service]
+User=root
+Group=root
+CapabilityBoundingSet=~
+PrivateTmp=false
+```
+
+Then run `systemctl restart nsncd`.
 
 ## Bug Reports and Contributions
 

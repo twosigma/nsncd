@@ -1,0 +1,26 @@
+nsncd (1.6.0) unstable; urgency=low
+
+  nsncd now runs as the unprivileged system user and group `_nsncd`
+  which the package creates on install. The service unit also applies
+  systemd sandboxing; it drops all capabilities and enables
+  ProtectSystem=strict, PrivateTmp and RestrictAddressFamilies.
+
+  Most NSS modules work unchanged, including sss, ldap (nslcd), winbind,
+  systemd, files, extrausers and cache, because they read world-readable
+  files or talk to a privileged daemon over a socket.
+
+  Some legacy modules need root to work correctly. One example is PADL's
+  libnss_ldap configured with rootbinddn, which reads /etc/ldap.secret
+  only when running as root. Without root, it may fall back to an
+  anonymous bind and return incomplete results. If you use such a module,
+  restore the previous behaviour with a drop-in (`systemctl edit nsncd`):
+
+    [Service]
+    User=root
+    Group=root
+    CapabilityBoundingSet=~
+    PrivateTmp=false
+
+  Then run `systemctl restart nsncd`.
+
+ -- James Morris <jamesm@twosigma.com>  Sun, 01 Nov 2026 10:17:26 -0500

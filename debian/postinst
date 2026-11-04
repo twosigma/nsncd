@@ -1,0 +1,29 @@
+#!/bin/sh
+
+set -e
+
+
+case "$1" in
+configure)
+	# Create the system user belonging to that group
+	#    adduser implicitly handles existence checks and does not fail if it already exists.
+	adduser --system \
+		--group \
+		--home /nonexistent \
+		--no-create-home \
+		--disabled-login \
+		_nsncd
+	;;
+
+abort-upgrade | abort-remove | abort-deconfigure) ;;
+
+\
+	*)
+	echo "postinst called with unknown argument \`$1'" >&2
+	exit 1
+	;;
+esac
+
+#DEBHELPER#
+
+exit 0
