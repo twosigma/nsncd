@@ -21,11 +21,39 @@
 #include <pwd.h>
 #include <string.h>
 #include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+/*
+ * Test-only synchronization for exercising nsncd worker saturation.
+ *
+ * A lookup for "whatami_block" signals that it has entered the NSS
+ * backend, then remains blocked until the integration test explicitly
+ * releases it.
+ */
+static void
+block_test_lookup(void)
+{
+	int fd = open("/tmp/nsncd-test-entered", O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	if (fd >= 0) {
+		close(fd);
+	}
+
+	while (access("/tmp/nsncd-test-release", F_OK) != 0) {
+		usleep(1000);
+	}
+}
 
 enum nss_status
 _nss_whatami_getpwnam_r(const char *name, struct passwd *result, char *buffer, size_t buflen, int *errnop)
 {
-	if (strcmp(name, "whatami") == 0 || strncmp(name, "am_i_", 5) == 0) {
+	if (strcmp(name, "whatami_block") == 0) {
+		block_test_lookup();
+	}
+
+	if (strcmp(name, "whatami") == 0 ||
+	    strcmp(name, "whatami_block") == 0 ||
+	    strncmp(name, "am_i_", 5) == 0) {
 		if (buflen < 16) {
 			*errnop = ERANGE;
 			return NSS_STATUS_TRYAGAIN;
